@@ -311,6 +311,27 @@ class ContentParserTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test convert_html_to_blocks preserves content inside block-containing divs.
+	 *
+	 * Regression: a div holding block-level children was previously dropped
+	 * wholesale; it is now recursed into and returned as a group block.
+	 */
+	public function test_convert_html_to_blocks_preserves_block_containing_divs() {
+		$html = '<div><p>Wrapped paragraph.</p><ul><li>Item</li></ul></div>';
+		$blocks = Content_Parser\convert_html_to_blocks( $html );
+
+		$this->assertCount( 1, $blocks );
+		$this->assertEquals( 'core/group', $blocks[0]['blockName'] );
+
+		$inner_names = array_column( $blocks[0]['innerBlocks'], 'blockName' );
+		$this->assertContains( 'core/paragraph', $inner_names );
+		$this->assertContains( 'core/list', $inner_names );
+
+		$serialized = Content_Parser\serialize_blocks( $blocks );
+		$this->assertStringContainsString( 'Wrapped paragraph.', $serialized );
+	}
+
+	/**
 	 * Test convert_html_to_blocks with blockquote.
 	 */
 	public function test_convert_html_to_blocks_blockquote() {

@@ -357,6 +357,29 @@ function create_freeform_block( string $html ) : array {
 }
 
 /**
+ * Create a group block wrapping inner blocks.
+ *
+ * @param array $inner_blocks Inner block arrays.
+ * @return array Group block.
+ */
+function create_group_block( array $inner_blocks ) : array {
+	// innerContent interleaves the wrapper HTML with a null per inner block.
+	$inner_content = [ '<div class="wp-block-group">' ];
+	foreach ( $inner_blocks as $ignored ) {
+		$inner_content[] = null;
+	}
+	$inner_content[] = '</div>';
+
+	return [
+		'blockName'    => 'core/group',
+		'attrs'        => [],
+		'innerBlocks'  => $inner_blocks,
+		'innerHTML'    => '<div class="wp-block-group"></div>',
+		'innerContent' => $inner_content,
+	];
+}
+
+/**
  * Convert a heading element to a heading block.
  *
  * @param \DOMNode     $node    Heading element.
@@ -705,9 +728,15 @@ function convert_div_element( \DOMNode $node, \DOMDocument $dom, array $options 
 		}
 	}
 
-	// For divs with block children, we return null to let parent process children.
-	// Future enhancement: recursively process and return as group block.
-	return null;
+	// Divs with block-level children: recurse so their content is preserved,
+	// wrapping the result in a group block.
+	$inner_blocks = convert_child_nodes_to_blocks( $node, $dom, $options );
+
+	if ( empty( $inner_blocks ) ) {
+		return null;
+	}
+
+	return create_group_block( $inner_blocks );
 }
 
 /**
@@ -933,6 +962,22 @@ function convert_html_to_blocks( string $html, array $options = [] ) : array {
 		return [ create_freeform_block( $html ) ];
 	}
 
+	return convert_child_nodes_to_blocks( $wrapper, $dom, $options );
+}
+
+/**
+ * Convert the child nodes of an element into a flat list of blocks.
+ *
+ * Inline content between block-level children is accumulated and flushed as
+ * paragraph blocks, preserving document order. Used for the top-level document
+ * and, recursively, for block-containing <div> wrappers.
+ *
+ * @param \DOMNode     $parent  Element whose children are converted.
+ * @param \DOMDocument $dom     Parent document.
+ * @param array        $options Processing options.
+ * @return array List of block arrays.
+ */
+function convert_child_nodes_to_blocks( \DOMNode $parent, \DOMDocument $dom, array $options ) : array {
 	$blocks = [];
 	$paragraph_buffer = [];
 
@@ -959,7 +1004,7 @@ function convert_html_to_blocks( string $html, array $options = [] ) : array {
 	};
 
 	// Process child nodes.
-	foreach ( $wrapper->childNodes as $node ) {
+	foreach ( $parent->childNodes as $node ) {
 		$block = convert_dom_node_to_block( $node, $dom, $options, $paragraph_buffer, $flush_paragraph );
 
 		if ( $block !== null ) {
