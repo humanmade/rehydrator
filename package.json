@@ -1,6 +1,5 @@
 {
 	"name": "rehydrator",
-	"version": "1.0.0",
 	"private": true,
 	"description": "Pattern-based content transformation for WordPress block migrations",
 	"scripts": {
