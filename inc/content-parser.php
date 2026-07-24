@@ -452,6 +452,7 @@ function convert_paragraph_element( \DOMNode $node, \DOMDocument $dom, array $op
 	$content = trim( $content );
 
 	// Skip empty paragraphs.
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.strip_tags_strip_tags -- WP's also strips wrapped content.
 	if ( $options['clean_empty_paragraphs'] && empty( trim( strip_tags( $content ) ) ) ) {
 		return null;
 	}
@@ -719,6 +720,7 @@ function convert_div_element( \DOMNode $node, \DOMDocument $dom, array $options 
 		$content = get_node_inner_html( $node, $dom, $options );
 		$content = trim( $content );
 
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.strip_tags_strip_tags -- WP's also strips wrapped content.
 		if ( $options['clean_empty_paragraphs'] && empty( trim( strip_tags( $content ) ) ) ) {
 			return null;
 		}
@@ -863,6 +865,7 @@ function convert_dom_node_to_block( \DOMNode $node, \DOMDocument $dom, array $op
 		default:
 			// Unknown elements: try to extract content as paragraph.
 			$inner_html = get_node_inner_html( $node, $dom, $options );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.strip_tags_strip_tags -- WP's also strips wrapped content.
 			if ( ! empty( trim( strip_tags( $inner_html ) ) ) ) {
 				$paragraph_buffer[] = $inner_html;
 			}
@@ -996,6 +999,7 @@ function convert_child_nodes_to_blocks( \DOMNode $parent, \DOMDocument $dom, arr
 		$content = preg_replace( '/\s+/', ' ', $content );
 		$content = trim( $content );
 
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.strip_tags_strip_tags -- WP's also strips wrapped content.
 		if ( ! empty( $content ) && ( ! $options['clean_empty_paragraphs'] || ! empty( trim( strip_tags( $content ) ) ) ) ) {
 			$blocks[] = create_paragraph_block( $content );
 		}
