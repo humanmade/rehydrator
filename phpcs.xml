@@ -4,6 +4,9 @@
 
 	<rule ref="HM-Minimum" />
 
+	<!-- Matches the composer.json PHP requirement. PHPCompatibility 9.x errors out if this is unset. -->
+	<config name="testVersion" value="8.2-" />
+
 	<file>.</file>
 
 	<exclude-pattern>/vendor/*</exclude-pattern>
