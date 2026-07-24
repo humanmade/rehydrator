@@ -480,6 +480,20 @@ class TemplateTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test chained search_replace calls on the same occurrence all apply.
+	 */
+	public function test_multiple_search_replace_on_same_occurrence() {
+		$template = new Template( 'test/simple-heading' );
+
+		$content = $template
+			->search_replace( 'test/simple-heading', 'core/paragraph', 0, 'Test', 'Modified' )
+			->search_replace( 'test/simple-heading', 'core/paragraph', 0, 'content', 'body' )
+			->get_content();
+
+		$this->assertStringContainsString( 'Modified paragraph body.', $content );
+	}
+
+	/**
 	 * Test get_content returns WP_Error for missing pattern.
 	 */
 	public function test_get_content_returns_wp_error_for_missing_pattern() {
