@@ -188,9 +188,11 @@ class Template {
 	 * @return self For chaining.
 	 */
 	public function search_replace( string $pattern_slug, string $block_type, int $occurrence, string $search, string $replace ) {
+		// Stored as arrays so repeated calls on the same occurrence accumulate;
+		// str_replace() applies all pairs in one pass.
 		$this->merge_transformation( $pattern_slug, $block_type, $occurrence, [
-			'search'  => $search,
-			'replace' => $replace,
+			'search'  => [ $search ],
+			'replace' => [ $replace ],
 		] );
 
 		return $this;
@@ -385,6 +387,15 @@ class Template {
 		} else {
 			// Per-occurrence transformation.
 			$existing = $this->transformations[ $pattern_slug ][ $block_type ][ $occurrence ] ?? [];
+
+			// Accumulate search/replace pairs rather than letting array_merge
+			// overwrite them, so multiple search_replace() calls can target the
+			// same block occurrence.
+			if ( isset( $existing['search'], $transformation['search'] ) ) {
+				$transformation['search'] = array_merge( $existing['search'], $transformation['search'] );
+				$transformation['replace'] = array_merge( $existing['replace'], $transformation['replace'] );
+			}
+
 			$this->transformations[ $pattern_slug ][ $block_type ][ $occurrence ] = array_merge(
 				$existing,
 				$transformation
