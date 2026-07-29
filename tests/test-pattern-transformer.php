@@ -136,7 +136,8 @@ class PatternTransformerTest extends WP_UnitTestCase {
 
 		// The ampersand must be HTML-encoded in the stored markup.
 		$this->assertStringContainsString( 'Tom &amp; Jerry', $updated['innerHTML'] );
-		$this->assertStringNotContainsString( 'Tom & Jerry', $updated['innerHTML'] );
+		// Must not be double-encoded (set_modifiable_text should encode exactly once).
+		$this->assertStringNotContainsString( 'Tom &amp;amp; Jerry', $updated['innerHTML'] );
 	}
 
 	/**
