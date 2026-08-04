@@ -113,6 +113,7 @@ class SyncedPatternsTest extends WP_UnitTestCase {
 		$posts = get_posts( [
 			'post_type' => 'wp_block',
 			'meta_key' => Synced_Patterns\SYNCED_PATTERN_KEY_META,
+			// phpcs:ignore HM.Performance.SlowMetaQuery.slow_query_meta_value
 			'meta_value' => 'footer-cta-reuse-test',
 		] );
 		$this->assertCount( 1, $posts );
