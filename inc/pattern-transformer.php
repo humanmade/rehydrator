@@ -346,7 +346,8 @@ function update_block_text_content( array $block, string $new_text ) : array {
  * WordPress block serialization requires innerContent to have null placeholders
  * for each inner block. This rebuilds it when innerBlocks has been modified.
  *
- * Uses WP_HTML_Tag_Processor to properly extract opening and closing tags.
+ * Tries to use wrapper chunks the parser already recorded in innerContent, then
+ * falls back to reconstructing a single wrapper tag with WP_HTML_Tag_Processor.
  *
  * Special handling for cover blocks to preserve image and overlay elements.
  *
@@ -376,6 +377,23 @@ function rebuild_inner_content( array $block ) : array {
 	// If there's no wrapper HTML, innerContent is just nulls.
 	if ( empty( $inner_html ) ) {
 		$block['innerContent'] = array_fill( 0, count( $block['innerBlocks'] ), null );
+		return $block;
+	}
+
+	// Reuse wrapper chunks recorded by the block parser when a block has them.
+	// This captures more varieties of wrapping markup around nested inner blocks
+	// than we can infer from the top node of innerHTML alone.
+	$existing = (array) ( $block['innerContent'] ?? [] );
+	$opening  = $existing[0] ?? null;
+	$closing  = count( $existing ) > 1 ? end( $existing ) : null;
+
+	if ( is_string( $opening ) && is_string( $closing ) ) {
+		$block['innerContent'] = array_merge(
+			[ $opening ],
+			array_fill( 0, count( $block['innerBlocks'] ), null ),
+			[ $closing ]
+		);
+
 		return $block;
 	}
 
