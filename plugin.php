@@ -3,7 +3,7 @@
  * Plugin Name: Rehydrator
  * Plugin URI: https://github.com/humanmade/rehydrator
  * Description: Pattern-based content transformation for WordPress block migrations. Provides a fluent API for loading patterns, resolving nested references, and applying targeted transformations.
- * Version: 1.1.1
+ * Version: 1.1.2
  * Author: Human Made
  * Author URI: https://humanmade.com
  * License: GPL-2.0-or-later
