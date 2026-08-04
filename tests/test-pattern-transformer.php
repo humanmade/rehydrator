@@ -110,6 +110,69 @@ class PatternTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test rebuild_inner_content keeps every level of a nested wrapper.
+	 *
+	 * Uses a carousel viewport block to verify that no level of nested wrapper
+	 * gets dropped when inner content is rebuilt.
+	 */
+	public function test_rebuild_inner_content_preserves_nested_wrapper() {
+		$blocks = parse_blocks( $this->load_pattern( 'nested-wrapper-carousel' ) );
+		$viewport = $this->find_block( $blocks, 'rt-carousel/carousel-viewport' );
+
+		$this->assertNotNull( $viewport );
+		$this->assertCount( 2, $viewport['innerBlocks'] );
+
+		// Drop a slide, as a transformation removing an inner block would.
+		$viewport['innerBlocks'] = [ $viewport['innerBlocks'][0] ];
+
+		$rebuilt = Pattern_Transformer\rebuild_inner_content( $viewport );
+
+		$this->assertCount( 3, $rebuilt['innerContent'] );
+		$this->assertStringContainsString( 'embla__container', $rebuilt['innerContent'][0] );
+		$this->assertNull( $rebuilt['innerContent'][1] );
+		$this->assertStringContainsString( '</div></div>', $rebuilt['innerContent'][2] );
+	}
+
+	/**
+	 * Test rebuild_inner_content keeps markup that follows the last inner block.
+	 *
+	 * Uses a carousel block to verify that elements after wrapped content don't
+	 * get discarded on reconstruction.
+	 */
+	public function test_rebuild_inner_content_preserves_trailing_markup() {
+		$blocks = parse_blocks( $this->load_pattern( 'nested-wrapper-carousel' ) );
+		$carousel = $this->find_block( $blocks, 'rt-carousel/carousel' );
+
+		$this->assertNotNull( $carousel );
+
+		$rebuilt = Pattern_Transformer\rebuild_inner_content( $carousel );
+
+		$this->assertStringContainsString( 'screen-reader-text', end( $rebuilt['innerContent'] ) );
+	}
+
+	/**
+	 * Find the first block of a given type, at any depth.
+	 *
+	 * @param array  $blocks Parsed blocks to search.
+	 * @param string $name   Block type name.
+	 * @return array|null Matched block, or null when absent.
+	 */
+	protected function find_block( array $blocks, string $name ) : ?array {
+		foreach ( $blocks as $block ) {
+			if ( ( $block['blockName'] ?? '' ) === $name ) {
+				return $block;
+			}
+
+			$found = $this->find_block( $block['innerBlocks'] ?? [], $name );
+			if ( $found !== null ) {
+				return $found;
+			}
+		}
+
+		return null;
+	}
+
+	/**
 	 * Test resolving pattern references tags blocks with source.
 	 */
 	public function test_resolve_and_tag_patterns_tags_blocks() {
