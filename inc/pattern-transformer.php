@@ -295,10 +295,16 @@ function apply_block_transformation( array $block, array $transformation ) : arr
 /**
  * Update just the text content of a block, preserving HTML structure.
  *
- * Uses WP_HTML_Tag_Processor to safely update text while keeping all attributes.
+ * Finds the first text node in the block's innerHTML and replaces it using
+ * WP_HTML_Tag_Processor::set_modifiable_text(), which HTML-encodes the value.
+ * This preserves nested markup (e.g. the wrapping div and inner anchor of a
+ * core/button block) and prevents XSS by escaping special characters.
  *
- * @param array  $block Block to modify.
- * @param string $new_text New text content.
+ * Use replace_html / the 'innerHTML' transformation key when you need to
+ * inject raw HTML rather than plain text.
+ *
+ * @param array  $block    Block to modify.
+ * @param string $new_text New plain-text content (will be HTML-encoded).
  * @return array Modified block.
  */
 function update_block_text_content( array $block, string $new_text ) : array {
@@ -310,32 +316,27 @@ function update_block_text_content( array $block, string $new_text ) : array {
 
 	$processor = new WP_HTML_Tag_Processor( $html );
 
-	// Find the first HTML tag and extract its details.
-	if ( ! $processor->next_tag() ) {
-		return $block;
-	}
-
-	$tag_name = $processor->get_tag();
-	$attributes = '';
-
-	// Collect all attributes.
-	foreach ( $processor->get_attribute_names_with_prefix( '' ) as $attr_name ) {
-		$attr_value = $processor->get_attribute( $attr_name );
-		if ( is_string( $attr_value ) ) {
-			$attributes .= sprintf( ' %s="%s"', $attr_name, esc_attr( $attr_value ) );
-		} else {
-			// Boolean attribute (true) or missing value (null).
-			$attributes .= sprintf( ' %s', $attr_name );
+	// Walk tokens until the first non-empty text node is found, then replace it.
+	while ( $processor->next_token() ) {
+		if ( '#text' !== $processor->get_token_type() ) {
+			continue;
 		}
+
+		// Skip whitespace-only text nodes so we land on the real content.
+		if ( '' === trim( $processor->get_modifiable_text() ) ) {
+			continue;
+		}
+
+		// set_modifiable_text() HTML-encodes the value, keeping surrounding
+		// markup (tags, attributes, sibling elements) intact.
+		$processor->set_modifiable_text( $new_text );
+		break;
 	}
 
-	// Rebuild the HTML with the new text inside the tag.
-	// Use lowercase tag names for consistency with WordPress standards.
-	$tag_name_lower = strtolower( $tag_name );
-	$html = sprintf( '<%s%s>%s</%s>', $tag_name_lower, $attributes, $new_text, $tag_name_lower );
+	$new_html = $processor->get_updated_html();
 
-	$block['innerHTML'] = $html;
-	$block['innerContent'] = [ $html ];
+	$block['innerHTML'] = $new_html;
+	$block['innerContent'] = [ $new_html ];
 
 	return $block;
 }

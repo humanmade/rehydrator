@@ -84,6 +84,63 @@ class PatternTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test update_block_text_content preserves nested markup in wrapper blocks.
+	 *
+	 * core/button renders a wrapping <div> with an inner <a>; only the link
+	 * text should change — the outer div and inner anchor must be preserved.
+	 */
+	public function test_update_block_text_content_preserves_nested_markup() {
+		$button_html = '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="#">Click Here</a></div>';
+
+		$block = [
+			'blockName'    => 'core/button',
+			'attrs'        => [],
+			'innerHTML'    => $button_html,
+			'innerContent' => [ $button_html ],
+			'innerBlocks'  => [],
+		];
+
+		$updated = Pattern_Transformer\update_block_text_content( $block, 'Buy Now' );
+
+		// Outer wrapper div must still be present.
+		$this->assertStringContainsString( '<div class="wp-block-button">', $updated['innerHTML'] );
+		// Inner anchor tag must be preserved with its attributes.
+		$this->assertStringContainsString( '<a class="wp-block-button__link wp-element-button" href="#">', $updated['innerHTML'] );
+		// New text should be set.
+		$this->assertStringContainsString( 'Buy Now', $updated['innerHTML'] );
+		// Old text should be gone.
+		$this->assertStringNotContainsString( 'Click Here', $updated['innerHTML'] );
+	}
+
+	/**
+	 * Test update_block_text_content HTML-encodes special characters.
+	 *
+	 * replace_text() delegates to this function, so the text value should be
+	 * HTML-encoded (e.g. & → &amp;) rather than inserted verbatim.
+	 */
+	public function test_update_block_text_content_escapes_special_chars() {
+		$content = $this->load_pattern( 'simple-heading-paragraph' );
+		$blocks = parse_blocks( $content );
+
+		$heading = null;
+		foreach ( $blocks as $block ) {
+			if ( $block['blockName'] === 'core/heading' ) {
+				$heading = $block;
+				break;
+			}
+		}
+
+		$this->assertNotNull( $heading );
+
+		$updated = Pattern_Transformer\update_block_text_content( $heading, 'Tom & Jerry' );
+
+		// The ampersand must be HTML-encoded in the stored markup.
+		$this->assertStringContainsString( 'Tom &amp; Jerry', $updated['innerHTML'] );
+		// Must not be double-encoded (set_modifiable_text should encode exactly once).
+		$this->assertStringNotContainsString( 'Tom &amp;amp; Jerry', $updated['innerHTML'] );
+	}
+
+	/**
 	 * Test rebuild_inner_content preserves structure.
 	 */
 	public function test_rebuild_inner_content() {

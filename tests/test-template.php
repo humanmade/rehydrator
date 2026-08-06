@@ -79,6 +79,14 @@ class TemplateTest extends WP_UnitTestCase {
 				'content' => $this->load_pattern( 'simple-heading-paragraph' ),
 			]
 		);
+
+		register_block_pattern(
+			'test/button-block',
+			[
+				'title' => 'Button Block',
+				'content' => $this->load_pattern( 'button-block' ),
+			]
+		);
 	}
 
 	/**
@@ -89,6 +97,7 @@ class TemplateTest extends WP_UnitTestCase {
 		unregister_block_pattern( 'test/footer-cta' );
 		unregister_block_pattern( 'test/template-article' );
 		unregister_block_pattern( 'test/simple-heading' );
+		unregister_block_pattern( 'test/button-block' );
 
 		parent::tear_down();
 	}
@@ -506,7 +515,12 @@ class TemplateTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Test that serialized output uses literal ampersands (not \u0026).
+	 * Test that replace_text HTML-encodes special characters (& → &amp;).
+	 *
+	 * Because replace_text() uses set_modifiable_text() under the hood, special
+	 * HTML characters are encoded; the block markup will contain &amp; rather
+	 * than a bare & (which would be invalid HTML).  The JSON serialisation must
+	 * NOT further escape the ampersand as \u0026.
 	 */
 	public function test_get_content_serializes_ampersands_correctly() {
 		$template = new Template( 'test/simple-heading' );
@@ -515,7 +529,32 @@ class TemplateTest extends WP_UnitTestCase {
 			->replace_text( 'test/simple-heading', 'core/heading', 0, 'Tom & Jerry' )
 			->get_content();
 
-		$this->assertStringContainsString( 'Tom & Jerry', $content );
-		$this->assertStringNotContainsString( '\\u0026', $content );
+		// The ampersand must be HTML-encoded in the stored markup.
+		$this->assertStringContainsString( 'Tom &amp; Jerry', $content );
+		// JSON serialisation must not double-escape it as \u0026.
+		$this->assertStringNotContainsString( '\u0026', $content );
+	}
+
+	/**
+	 * Test replace_text on a button block preserves nested markup.
+	 *
+	 * core/button wraps the link text in a div > a structure.  replace_text()
+	 * must update only the link text and leave the outer div and anchor intact.
+	 */
+	public function test_replace_text_on_button_preserves_nested_markup() {
+		$template = new Template( 'test/button-block' );
+
+		$content = $template
+			->replace_text( 'test/button-block', 'core/button', 0, 'Buy Now' )
+			->get_content();
+
+		// New text must appear.
+		$this->assertStringContainsString( 'Buy Now', $content );
+		// Original text must be gone.
+		$this->assertStringNotContainsString( 'Click Here', $content );
+		// Outer wrapper div must be preserved.
+		$this->assertStringContainsString( 'wp-block-button">', $content );
+		// Inner anchor element must be preserved.
+		$this->assertStringContainsString( '<a ', $content );
 	}
 }
