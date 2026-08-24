@@ -136,12 +136,18 @@ function tag_blocks_recursively( array $blocks, string $source_pattern ) : array
  * @param array $blocks Blocks with _source_pattern metadata.
  * @param array $transformations Transformations per pattern.
  * @param array $block_type_counters Counter array (for internal recursion).
+ * @param array $removed_indices Out-param: zero-based positions (in $blocks)
+ *                               of blocks removed by a _delete transformation,
+ *                               so the caller can splice the matching
+ *                               innerContent placeholders. For internal recursion.
  * @return array Transformed blocks.
  */
-function apply_pattern_transformations( array $blocks, array $transformations, array &$block_type_counters = [] ) : array {
+function apply_pattern_transformations( array $blocks, array $transformations, array &$block_type_counters = [], array &$removed_indices = [] ) : array {
 	$result = [];
+	$position = -1;
 
 	foreach ( $blocks as $block ) {
+		$position++;
 		// Check both _source_pattern (from resolved pattern references) and
 		// metadata.patternName (from inline content with semantic pattern grouping).
 		$source_pattern = $block['_source_pattern'] ?? $block['attrs']['metadata']['patternName'] ?? '';
@@ -201,8 +207,11 @@ function apply_pattern_transformations( array $blocks, array $transformations, a
 			}
 		}
 
-		// Skip this block if marked for deletion.
+		// Skip this block if marked for deletion, recording its position so the
+		// caller can drop the matching innerContent placeholder (not the
+		// literal chunks around it).
 		if ( $should_delete ) {
+			$removed_indices[] = $position;
 			continue;
 		}
 
@@ -220,14 +229,20 @@ function apply_pattern_transformations( array $blocks, array $transformations, a
 				$block['innerBlocks'] = tag_blocks_recursively( $block['innerBlocks'], $source_pattern );
 			}
 
+			$child_removed = [];
 			$block['innerBlocks'] = apply_pattern_transformations(
 				$block['innerBlocks'],
 				$transformations,
-				$block_type_counters
+				$block_type_counters,
+				$child_removed
 			);
 
-			// If blocks were deleted, rebuild innerContent to match new innerBlocks count.
-			if ( count( $block['innerBlocks'] ) !== $original_inner_count ) {
+			if ( ! empty( $child_removed ) ) {
+				// Drop only the placeholders for the removed children, keeping
+				// every literal HTML chunk that sat between inner blocks.
+				$block = remove_inner_content_placeholders( $block, $child_removed );
+			} elseif ( count( $block['innerBlocks'] ) !== $original_inner_count ) {
+				// Count changed some other way — fall back to regeneration.
 				$block = rebuild_inner_content( $block );
 			}
 		}
@@ -336,6 +351,50 @@ function update_block_text_content( array $block, string $new_text ) : array {
 
 	$block['innerHTML'] = $html;
 	$block['innerContent'] = [ $html ];
+
+	return $block;
+}
+
+/**
+ * Remove the innerContent placeholders for specific removed child blocks.
+ *
+ * innerContent interleaves literal HTML chunks (strings) with one null per
+ * inner block, in order. When inner blocks are deleted we must drop only the
+ * matching null placeholders and keep every literal chunk — including markup
+ * that sits *between* inner blocks (e.g. an <hr> separator). Regenerating
+ * innerContent from scratch would keep only the outermost chunks and silently
+ * discard those interleaved literals, so this targeted splice is preferred;
+ * rebuild_inner_content() is used only as a fallback when the placeholder
+ * layout doesn't match expectations.
+ *
+ * @param array $block           Block whose innerBlocks were reduced.
+ * @param array $removed_indices Zero-based positions of the removed children,
+ *                               relative to the original innerBlocks order.
+ * @return array Block with corrected innerContent.
+ */
+function remove_inner_content_placeholders( array $block, array $removed_indices ) : array {
+	$inner_content = $block['innerContent'] ?? [];
+
+	// Array positions of each null placeholder, in order (Nth null = Nth child).
+	$null_positions = [];
+	foreach ( $inner_content as $pos => $chunk ) {
+		if ( $chunk === null ) {
+			$null_positions[] = $pos;
+		}
+	}
+
+	// Splice from the highest child index down so earlier positions stay valid.
+	rsort( $removed_indices );
+
+	foreach ( $removed_indices as $child_index ) {
+		if ( ! isset( $null_positions[ $child_index ] ) ) {
+			// Placeholder layout isn't what we expect — regenerate instead.
+			return rebuild_inner_content( $block );
+		}
+		array_splice( $inner_content, $null_positions[ $child_index ], 1 );
+	}
+
+	$block['innerContent'] = array_values( $inner_content );
 
 	return $block;
 }
