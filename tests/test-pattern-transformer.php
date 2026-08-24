@@ -241,4 +241,44 @@ class PatternTransformerTest extends WP_UnitTestCase {
 		$this->assertNotNull( $heading );
 		$this->assertStringContainsString( 'Transformed Title', $heading['innerHTML'] );
 	}
+
+	/**
+	 * Removing an inner block must preserve literal HTML that sits between
+	 * inner blocks (e.g. an <hr> separator), not just the outer wrapper.
+	 *
+	 * Regression: rebuilding innerContent from scratch on removal kept only the
+	 * first and last chunks and silently discarded interleaved literals.
+	 */
+	public function test_apply_pattern_transformations_preserves_interleaved_literal_on_remove() {
+		$markup = '<!-- wp:group --><div class="wp-block-group">'
+			. '<!-- wp:paragraph --><p>First</p><!-- /wp:paragraph -->'
+			. '<hr class="divider"/>'
+			. '<!-- wp:paragraph --><p>Second</p><!-- /wp:paragraph -->'
+			. '</div><!-- /wp:group -->';
+
+		$blocks = Pattern_Transformer\tag_blocks_recursively( parse_blocks( $markup ), 'test/sep' );
+
+		// Delete the second paragraph.
+		$transformations = [
+			'test/sep' => [
+				'core/paragraph' => [
+					1 => [ '_delete' => true ],
+				],
+			],
+		];
+
+		$result = Pattern_Transformer\apply_pattern_transformations( $blocks, $transformations );
+		$serialized = serialize_blocks( $result );
+
+		$this->assertStringContainsString( 'First', $serialized );
+		$this->assertStringNotContainsString( 'Second', $serialized );
+		// The literal <hr> that sat between the two paragraphs must survive.
+		$this->assertStringContainsString( 'divider', $serialized );
+
+		// And the result must still parse into a single group with one paragraph.
+		$reparsed = array_values( array_filter( parse_blocks( $serialized ), fn( $b ) => ! empty( $b['blockName'] ) ) );
+		$this->assertCount( 1, $reparsed );
+		$this->assertSame( 'core/group', $reparsed[0]['blockName'] );
+		$this->assertCount( 1, array_filter( $reparsed[0]['innerBlocks'], fn( $b ) => ! empty( $b['blockName'] ) ) );
+	}
 }
