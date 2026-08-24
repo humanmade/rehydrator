@@ -84,6 +84,46 @@ class PatternTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * update_block_text_content must not wrap text inside a void element, which
+	 * would emit invalid markup like <hr>text</hr>.
+	 */
+	public function test_update_block_text_content_leaves_void_elements_untouched() {
+		$separator = [
+			'blockName' => 'core/separator',
+			'attrs' => [],
+			'innerBlocks' => [],
+			'innerHTML' => '<hr class="wp-block-separator has-alpha-channel-opacity"/>',
+			'innerContent' => [ '<hr class="wp-block-separator has-alpha-channel-opacity"/>' ],
+		];
+
+		$updated = Pattern_Transformer\update_block_text_content( $separator, 'nope' );
+
+		$this->assertStringNotContainsString( 'nope', $updated['innerHTML'] );
+		$this->assertStringNotContainsString( '</hr>', $updated['innerHTML'] );
+		$this->assertSame( $separator['innerHTML'], $updated['innerHTML'] );
+	}
+
+	/**
+	 * update_block_text_content preserves standard attributes on the wrapper
+	 * tag when replacing text.
+	 */
+	public function test_update_block_text_content_preserves_attributes() {
+		$heading = [
+			'blockName' => 'core/heading',
+			'attrs' => [],
+			'innerBlocks' => [],
+			'innerHTML' => '<h2 class="wp-block-heading" id="intro">Old</h2>',
+			'innerContent' => [ '<h2 class="wp-block-heading" id="intro">Old</h2>' ],
+		];
+
+		$updated = Pattern_Transformer\update_block_text_content( $heading, 'New' );
+
+		$this->assertStringContainsString( 'New', $updated['innerHTML'] );
+		$this->assertStringContainsString( 'class="wp-block-heading"', $updated['innerHTML'] );
+		$this->assertStringContainsString( 'id="intro"', $updated['innerHTML'] );
+	}
+
+	/**
 	 * Test rebuild_inner_content preserves structure.
 	 */
 	public function test_rebuild_inner_content() {
