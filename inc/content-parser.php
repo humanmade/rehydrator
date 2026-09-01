@@ -664,15 +664,36 @@ function convert_figure_element( \DOMNode $node, \DOMDocument $dom, array $optio
  */
 function convert_table_element( \DOMNode $node, \DOMDocument $dom, array $options ) : array {
 	// Wrap in figure for block structure.
-	$figure_html = '<figure class="wp-block-table"><table>' . get_node_inner_html( $node, $dom, $options ) . '</table></figure>';
+	$table_inner_html = strip_table_presentation_attributes( get_node_inner_html( $node, $dom, $options ) );
+	$figure_html      = '<figure class="wp-block-table"><table>' . $table_inner_html . '</table></figure>';
 
 	return [
 		'blockName'    => 'core/table',
-		'attrs'        => [],
+		'attrs'        => [ 'hasFixedLayout' => false ],
 		'innerBlocks'  => [],
 		'innerHTML'    => $figure_html,
 		'innerContent' => [ $figure_html ],
 	];
+}
+
+/**
+ * Strip legacy presentational attributes `core/table`'s schema can't round-trip.
+ *
+ * Source HTML from legacy CMS exports frequently carries attributes like `valign`,
+ * `bgcolor`, `border`, `cellpadding`, and `cellspacing` directly on `<table>`, `<tr>`,
+ * `<td>`, and `<th>` elements. `core/table`'s save function never emits these, so
+ * their presence in `innerHTML` fails block validation on load (the parsed HTML
+ * won't match a re-render of `attrs`).
+ *
+ * @param string $html Table inner markup (or any HTML fragment).
+ * @return string
+ */
+function strip_table_presentation_attributes( string $html ) : string {
+	return (string) preg_replace(
+		'/\s+(?:valign|bgcolor|border|cellpadding|cellspacing)="[^"]*"/i',
+		'',
+		$html
+	);
 }
 
 /**
