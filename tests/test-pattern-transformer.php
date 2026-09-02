@@ -241,4 +241,223 @@ class PatternTransformerTest extends WP_UnitTestCase {
 		$this->assertNotNull( $heading );
 		$this->assertStringContainsString( 'Transformed Title', $heading['innerHTML'] );
 	}
+
+	/**
+	 * Test add_block_class updates both the attribute and the markup.
+	 */
+	public function test_add_block_class_updates_attrs_and_markup() {
+		$block = parse_blocks( '<!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Title</h2><!-- /wp:heading -->' )[0];
+
+		$result = Pattern_Transformer\add_block_class( $block, 'is-style-display' );
+
+		$this->assertSame( 'is-style-display', $result['attrs']['className'] );
+		$this->assertStringContainsString( 'class="wp-block-heading is-style-display"', $result['innerHTML'] );
+		$this->assertSame( [ $result['innerHTML'] ], $result['innerContent'] );
+	}
+
+	/**
+	 * Test add_block_class adds a class attribute when the tag has none.
+	 *
+	 * This is the case the old markup-prefix matching could not handle.
+	 */
+	public function test_add_block_class_on_tag_without_class_attribute() {
+		$block = parse_blocks( '<!-- wp:heading {"level":3} --><h3>Title</h3><!-- /wp:heading -->' )[0];
+
+		$result = Pattern_Transformer\add_block_class( $block, 'is-style-display' );
+
+		$this->assertSame( 'is-style-display', $result['attrs']['className'] );
+		$this->assertStringContainsString( '<h3 class="is-style-display">', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test add_block_class appends to classes the block already has.
+	 */
+	public function test_add_block_class_preserves_existing_classes() {
+		$block = parse_blocks( '<!-- wp:paragraph {"className":"lede"} --><p class="lede">Text.</p><!-- /wp:paragraph -->' )[0];
+
+		$result = Pattern_Transformer\add_block_class( $block, 'is-style-large' );
+
+		$this->assertSame( 'lede is-style-large', $result['attrs']['className'] );
+		$this->assertStringContainsString( 'class="lede is-style-large"', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test add_block_class accepts several classes, as an array or a string.
+	 */
+	public function test_add_block_class_accepts_multiple_classes() {
+		$block = parse_blocks( '<!-- wp:paragraph --><p>Text.</p><!-- /wp:paragraph -->' )[0];
+
+		$from_array = Pattern_Transformer\add_block_class( $block, [ 'one', 'two' ] );
+		$from_string = Pattern_Transformer\add_block_class( $block, 'one two' );
+
+		$this->assertSame( 'one two', $from_array['attrs']['className'] );
+		$this->assertSame( $from_array, $from_string );
+	}
+
+	/**
+	 * Test add_block_class does not duplicate a class the block already has.
+	 */
+	public function test_add_block_class_does_not_duplicate() {
+		$block = parse_blocks( '<!-- wp:paragraph {"className":"lede"} --><p class="lede">Text.</p><!-- /wp:paragraph -->' )[0];
+
+		$result = Pattern_Transformer\add_block_class( $block, 'lede' );
+
+		$this->assertSame( 'lede', $result['attrs']['className'] );
+		$this->assertStringContainsString( 'class="lede"', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test add_block_class only touches the wrapper tag of a container block.
+	 */
+	public function test_add_block_class_updates_wrapper_of_container_block() {
+		$blocks = parse_blocks( $this->load_pattern( 'hero-section' ) );
+		$group = $this->find_block( $blocks, 'core/group' );
+
+		$result = Pattern_Transformer\add_block_class( $group, 'is-featured' );
+
+		$this->assertSame( 'hero-section is-featured', $result['attrs']['className'] );
+		$this->assertStringContainsString( 'class="wp-block-group hero-section is-featured"', $result['innerContent'][0] );
+		$this->assertNull( $result['innerContent'][1] );
+		$this->assertSame( '</div>', trim( end( $result['innerContent'] ) ) );
+		$this->assertCount( 3, $result['innerBlocks'] );
+	}
+
+	/**
+	 * Test add_block_class handles a block with no markup of its own.
+	 */
+	public function test_add_block_class_on_block_without_markup() {
+		$block = parse_blocks( '<!-- wp:latest-posts /-->' )[0];
+
+		$result = Pattern_Transformer\add_block_class( $block, 'is-style-grid' );
+
+		$this->assertSame( 'is-style-grid', $result['attrs']['className'] );
+		$this->assertSame( '', trim( $result['innerHTML'] ) );
+	}
+
+	/**
+	 * Test remove_block_class drops the class from the attribute and the markup.
+	 */
+	public function test_remove_block_class_updates_attrs_and_markup() {
+		$block = parse_blocks( '<!-- wp:paragraph {"className":"lede is-style-large"} --><p class="lede is-style-large">Text.</p><!-- /wp:paragraph -->' )[0];
+
+		$result = Pattern_Transformer\remove_block_class( $block, 'is-style-large' );
+
+		$this->assertSame( 'lede', $result['attrs']['className'] );
+		$this->assertStringNotContainsString( 'is-style-large', $result['innerHTML'] );
+		$this->assertStringContainsString( 'lede', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test remove_block_class drops className entirely when nothing is left.
+	 */
+	public function test_remove_block_class_unsets_empty_class_name() {
+		$block = parse_blocks( '<!-- wp:paragraph {"className":"lede"} --><p class="lede">Text.</p><!-- /wp:paragraph -->' )[0];
+
+		$result = Pattern_Transformer\remove_block_class( $block, 'lede' );
+
+		$this->assertArrayNotHasKey( 'className', $result['attrs'] );
+		$this->assertStringNotContainsString( 'lede', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test remove_block_class leaves generated classes alone.
+	 */
+	public function test_remove_block_class_leaves_other_classes() {
+		$block = parse_blocks( '<!-- wp:heading {"level":2,"className":"is-style-display"} --><h2 class="wp-block-heading is-style-display">Title</h2><!-- /wp:heading -->' )[0];
+
+		$result = Pattern_Transformer\remove_block_class( $block, 'is-style-display' );
+
+		$this->assertArrayNotHasKey( 'className', $result['attrs'] );
+		$this->assertStringContainsString( 'class="wp-block-heading"', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test replace_block_class swaps one class for another.
+	 */
+	public function test_replace_block_class_swaps_classes() {
+		$block = parse_blocks( '<!-- wp:heading {"level":2,"className":"is-style-default"} --><h2 class="wp-block-heading is-style-default">Title</h2><!-- /wp:heading -->' )[0];
+
+		$result = Pattern_Transformer\replace_block_class( $block, 'is-style-default', 'is-style-display' );
+
+		$this->assertSame( 'is-style-display', $result['attrs']['className'] );
+		$this->assertStringContainsString( 'class="wp-block-heading is-style-display"', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test replace_block_class swaps a tag's only class without leaving debris.
+	 *
+	 * Removing the last class drops the class attribute, so a swap done as two
+	 * passes leaves stray whitespace in the tag.
+	 */
+	public function test_replace_block_class_swaps_only_class_cleanly() {
+		$block = parse_blocks( '<!-- wp:paragraph {"className":"lede"} --><p class="lede">Text.</p><!-- /wp:paragraph -->' )[0];
+
+		$result = Pattern_Transformer\replace_block_class( $block, 'lede', 'is-style-large' );
+
+		$this->assertSame( 'is-style-large', $result['attrs']['className'] );
+		$this->assertStringContainsString( '<p class="is-style-large">Text.</p>', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test replace_block_class adds the new class even when the old one is absent.
+	 */
+	public function test_replace_block_class_adds_when_old_class_absent() {
+		$block = parse_blocks( '<!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Title</h2><!-- /wp:heading -->' )[0];
+
+		$result = Pattern_Transformer\replace_block_class( $block, 'is-style-default', 'is-style-display' );
+
+		$this->assertSame( 'is-style-display', $result['attrs']['className'] );
+		$this->assertStringContainsString( 'class="wp-block-heading is-style-display"', $result['innerHTML'] );
+	}
+
+	/**
+	 * Test the addClass and removeClass transformation keys.
+	 */
+	public function test_apply_pattern_transformations_adds_and_removes_classes() {
+		$blocks = parse_blocks( $this->load_pattern( 'simple-heading-paragraph' ) );
+		$tagged = Pattern_Transformer\tag_blocks_recursively( $blocks, 'test/hero' );
+
+		$transformations = [
+			'test/hero' => [
+				'core/heading' => [
+					0 => [
+						'addClass' => [ 'is-style-display' ],
+						'removeClass' => [ 'wp-block-heading' ],
+					],
+				],
+			],
+		];
+
+		$result = Pattern_Transformer\apply_pattern_transformations( $tagged, $transformations );
+		$heading = $this->find_block( $result, 'core/heading' );
+
+		$this->assertSame( 'is-style-display', $heading['attrs']['className'] );
+		$this->assertStringContainsString( 'is-style-display', $heading['innerHTML'] );
+		$this->assertStringNotContainsString( 'wp-block-heading', $heading['innerHTML'] );
+	}
+
+	/**
+	 * Test class changes apply after a textContent replacement on the same block.
+	 */
+	public function test_apply_pattern_transformations_class_survives_text_replacement() {
+		$blocks = parse_blocks( $this->load_pattern( 'simple-heading-paragraph' ) );
+		$tagged = Pattern_Transformer\tag_blocks_recursively( $blocks, 'test/hero' );
+
+		$transformations = [
+			'test/hero' => [
+				'core/heading' => [
+					0 => [
+						'textContent' => 'New Title',
+						'addClass' => [ 'is-style-display' ],
+					],
+				],
+			],
+		];
+
+		$result = Pattern_Transformer\apply_pattern_transformations( $tagged, $transformations );
+		$heading = $this->find_block( $result, 'core/heading' );
+
+		$this->assertStringContainsString( 'New Title', $heading['innerHTML'] );
+		$this->assertStringContainsString( 'class="wp-block-heading is-style-display"', $heading['innerHTML'] );
+	}
 }

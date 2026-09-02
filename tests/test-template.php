@@ -518,4 +518,106 @@ class TemplateTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'Tom & Jerry', $content );
 		$this->assertStringNotContainsString( '\\u0026', $content );
 	}
+
+	/**
+	 * Test add_class updates the attribute and the markup together.
+	 */
+	public function test_add_class_updates_attrs_and_markup() {
+		$template = new Template( 'test/simple-heading' );
+
+		$content = $template
+			->add_class( 'test/simple-heading', 'core/heading', 0, 'is-style-display' )
+			->get_content();
+
+		$this->assertStringContainsString( '"className":"is-style-display"', $content );
+		$this->assertStringContainsString( '<h2 class="wp-block-heading is-style-display">', $content );
+	}
+
+	/**
+	 * Test add_class targets a single occurrence.
+	 */
+	public function test_add_class_targets_specific_occurrence() {
+		$template = new Template( 'test/hero' );
+
+		$content = $template
+			->add_class( 'test/hero', 'core/paragraph', 1, 'is-style-quiet' )
+			->get_content();
+
+		$this->assertStringContainsString( '<p class="hero-subtitle is-style-quiet">', $content );
+		$this->assertStringContainsString( '<p class="hero-description">', $content );
+	}
+
+	/**
+	 * Test repeated add_class calls on one block accumulate.
+	 */
+	public function test_add_class_calls_accumulate() {
+		$template = new Template( 'test/simple-heading' );
+
+		$content = $template
+			->add_class( 'test/simple-heading', 'core/heading', 0, 'one' )
+			->add_class( 'test/simple-heading', 'core/heading', 0, 'two' )
+			->get_content();
+
+		$this->assertStringContainsString( '"className":"one two"', $content );
+		$this->assertStringContainsString( '<h2 class="wp-block-heading one two">', $content );
+	}
+
+	/**
+	 * Test add_class combines with a text replacement on the same block.
+	 */
+	public function test_add_class_combines_with_replace_text() {
+		$template = new Template( 'test/simple-heading' );
+
+		$content = $template
+			->replace_text( 'test/simple-heading', 'core/heading', 0, 'New Title' )
+			->add_class( 'test/simple-heading', 'core/heading', 0, 'is-style-display' )
+			->get_content();
+
+		$this->assertStringContainsString( '<h2 class="wp-block-heading is-style-display">New Title</h2>', $content );
+	}
+
+	/**
+	 * Test add_class on a container block updates only its wrapper.
+	 */
+	public function test_add_class_on_container_block_updates_wrapper() {
+		$template = new Template( 'test/hero' );
+
+		$content = $template
+			->add_class( 'test/hero', 'core/group', 0, 'is-featured' )
+			->get_content();
+
+		$this->assertStringContainsString( '<div class="wp-block-group hero is-featured">', $content );
+		$this->assertStringContainsString( 'Hero Title', $content );
+		$this->assertStringContainsString( 'Optional subtitle', $content );
+	}
+
+	/**
+	 * Test remove_class drops the class from the attribute and the markup.
+	 */
+	public function test_remove_class_updates_attrs_and_markup() {
+		$template = new Template( 'test/hero' );
+
+		$content = $template
+			->remove_class( 'test/hero', 'core/paragraph', 0, 'hero-description' )
+			->get_content();
+
+		$this->assertStringNotContainsString( 'hero-description', $content );
+		$this->assertStringContainsString( 'Hero description text', $content );
+		$this->assertStringContainsString( 'hero-subtitle', $content );
+	}
+
+	/**
+	 * Test replace_class swaps one class for another.
+	 */
+	public function test_replace_class_swaps_classes() {
+		$template = new Template( 'test/hero' );
+
+		$content = $template
+			->replace_class( 'test/hero', 'core/paragraph', 0, 'hero-description', 'is-style-lede' )
+			->get_content();
+
+		$this->assertStringNotContainsString( 'hero-description', $content );
+		$this->assertStringContainsString( '"className":"is-style-lede"', $content );
+		$this->assertStringContainsString( '<p class="is-style-lede">', $content );
+	}
 }

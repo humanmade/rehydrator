@@ -117,6 +117,68 @@ Search and replace a string within a specific block's innerHTML.
 
 ---
 
+## Classes
+
+A block's classes live in two places that have to stay synchronized: the `className` attribute in the serialized JSON, and the `class` attribute of the block's HTML markup. These three methods provide an easy way to change block classes while ensuring these attributes stay properly aligned.
+
+Classes may be given as a single string name, a space-separated list, or an array of either. Repeated calls against the same block modify a running list of classes rather than starting over from the ones declared in a pattern.
+
+### `add_class()`
+
+```php
+->add_class(
+    pattern_slug: 'theme/hero',
+    block_type:   'core/heading',
+    occurrence:   0,
+    classes:      'is-style-display'
+)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `$pattern_slug` | `string` | Slug of the pattern containing the target block |
+| `$block_type` | `string` | Block type name |
+| `$occurrence` | `int` | Zero-indexed position of the block within the pattern |
+| `$classes` | `string\|string[]` | Classes to add |
+
+Classes the block already has are left alone, so this is safe to apply across a pattern whose markup varies (or to omit mention of classes that you don't care about).
+
+---
+
+### `remove_class()`
+
+```php
+->remove_class( 'theme/hero', 'core/paragraph', occurrence: 0, classes: 'is-style-lede' )
+```
+
+Receives the same parameters as `add_class()`. Classes the block doesn't have are ignored, and `className` is dropped from the attributes once nothing is left in it. Generated classes the block needs (`wp-block-heading` and friends) are untouched unless named explicitly.
+
+---
+
+### `replace_class()`
+
+```php
+->replace_class(
+    pattern_slug: 'theme/hero',
+    block_type:   'core/heading',
+    occurrence:   0,
+    old_classes:  'is-style-default',
+    new_classes:  'is-style-display'
+)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `$pattern_slug` | `string` | Slug of the pattern containing the target block |
+| `$block_type` | `string` | Block type name |
+| `$occurrence` | `int` | Zero-indexed position of the block within the pattern |
+| `$old_classes` | `string\|string[]` | Classes to remove |
+| `$new_classes` | `string\|string[]` | Classes to add |
+
+The new classes are added whether or not the old ones were present, so this reads as "make sure that when we're done, _this_ class is removed and _this other_ class is present".
+
+---
+
 ## Custom transformations
 
 ### `transform_callback()`
