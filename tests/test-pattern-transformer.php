@@ -270,6 +270,24 @@ class PatternTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test adding nothing does not introduce an empty class attribute.
+	 *
+	 * Guards the case where the class comes from source data that turned out
+	 * to be empty: the block should be left exactly as it was.
+	 */
+	public function test_add_block_class_with_empty_input_changes_nothing() {
+		$block = parse_blocks( '<!-- wp:heading {"level":3} --><h3>Title</h3><!-- /wp:heading -->' )[0];
+
+		foreach ( [ '', '   ', [] ] as $empty ) {
+			$result = Pattern_Transformer\add_block_class( $block, $empty );
+
+			$this->assertArrayNotHasKey( 'className', $result['attrs'] );
+			$this->assertSame( '<h3>Title</h3>', $result['innerHTML'] );
+			$this->assertSame( [ '<h3>Title</h3>' ], $result['innerContent'] );
+		}
+	}
+
+	/**
 	 * Test add_block_class appends to classes the block already has.
 	 */
 	public function test_add_block_class_preserves_existing_classes() {
@@ -356,7 +374,12 @@ class PatternTransformerTest extends WP_UnitTestCase {
 		$result = Pattern_Transformer\remove_block_class( $block, 'lede' );
 
 		$this->assertArrayNotHasKey( 'className', $result['attrs'] );
-		$this->assertStringNotContainsString( 'lede', $result['innerHTML'] );
+
+		// The space left where the attribute was is what WP_HTML_Tag_Processor
+		// itself emits when the last class goes. Checked against the editor's
+		// isValidBlockContent(): insignificant whitespace inside a tag never
+		// reaches the token comparison, so this still validates.
+		$this->assertSame( '<p >Text.</p>', $result['innerHTML'] );
 	}
 
 	/**
@@ -417,12 +440,23 @@ class PatternTransformerTest extends WP_UnitTestCase {
 		$blocks = parse_blocks( $this->load_pattern( 'simple-heading-paragraph' ) );
 		$tagged = Pattern_Transformer\tag_blocks_recursively( $blocks, 'test/hero' );
 
+		// Note the generated wp-block-heading class is deliberately left alone:
+		// core/heading's save() always emits it, so content without it fails
+		// block validation in the editor.
 		$transformations = [
 			'test/hero' => [
 				'core/heading' => [
 					0 => [
-						'addClass' => [ 'is-style-display' ],
-						'removeClass' => [ 'wp-block-heading' ],
+						'classOps' => [
+							[
+								'action' => 'add',
+								'classes' => 'is-style-display legacy-heading',
+							],
+							[
+								'action' => 'remove',
+								'classes' => 'legacy-heading',
+							],
+						],
 					],
 				],
 			],
@@ -432,8 +466,40 @@ class PatternTransformerTest extends WP_UnitTestCase {
 		$heading = $this->find_block( $result, 'core/heading' );
 
 		$this->assertSame( 'is-style-display', $heading['attrs']['className'] );
-		$this->assertStringContainsString( 'is-style-display', $heading['innerHTML'] );
-		$this->assertStringNotContainsString( 'wp-block-heading', $heading['innerHTML'] );
+		$this->assertStringContainsString( 'class="wp-block-heading is-style-display"', $heading['innerHTML'] );
+		$this->assertStringNotContainsString( 'legacy-heading', $heading['innerHTML'] );
+	}
+
+	/**
+	 * Test class operations are applied in the order they were given.
+	 */
+	public function test_apply_class_ops_honours_order() {
+		$existing = [ 'wp-block-heading' ];
+
+		$add_then_remove = Pattern_Transformer\apply_class_ops( $existing, [
+			[
+				'action' => 'add',
+				'classes' => 'flagged',
+			],
+			[
+				'action' => 'remove',
+				'classes' => 'flagged',
+			],
+		] );
+
+		$remove_then_add = Pattern_Transformer\apply_class_ops( $existing, [
+			[
+				'action' => 'remove',
+				'classes' => 'flagged',
+			],
+			[
+				'action' => 'add',
+				'classes' => 'flagged',
+			],
+		] );
+
+		$this->assertSame( [ 'wp-block-heading' ], $add_then_remove );
+		$this->assertSame( [ 'wp-block-heading', 'flagged' ], $remove_then_add );
 	}
 
 	/**
@@ -448,7 +514,12 @@ class PatternTransformerTest extends WP_UnitTestCase {
 				'core/heading' => [
 					0 => [
 						'textContent' => 'New Title',
-						'addClass' => [ 'is-style-display' ],
+						'classOps' => [
+							[
+								'action' => 'add',
+								'classes' => 'is-style-display',
+							],
+						],
 					],
 				],
 			],

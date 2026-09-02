@@ -285,14 +285,11 @@ function apply_block_transformation( array $block, array $transformation ) : arr
 	}
 
 	// Add and remove classes last, so they apply to the output markup of above
-	// transformations. Both transforms are applied in one pass so that a swap
-	// doesn't temporarily totally empty the class attribute.
-	if ( isset( $transformation['addClass'] ) || isset( $transformation['removeClass'] ) ) {
-		$block = apply_block_classes(
-			$block,
-			normalize_class_list( $transformation['addClass'] ?? [] ),
-			normalize_class_list( $transformation['removeClass'] ?? [] )
-		);
+	// transformations. The ops run in the order they were registered, and are
+	// folded into one attribute write so that a swap doesn't temporarily empty
+	// the class attribute.
+	if ( ! empty( $transformation['classOps'] ) ) {
+		$block = apply_block_class_ops( $block, $transformation['classOps'] );
 	}
 
 	// Callback for custom replacement logic.
@@ -366,7 +363,12 @@ function update_block_text_content( array $block, string $new_text ) : array {
  * @return array Modified block.
  */
 function add_block_class( array $block, string|array $classes ) : array {
-	return apply_block_classes( $block, normalize_class_list( $classes ), [] );
+	return apply_block_class_ops( $block, [
+		[
+			'action' => 'add',
+			'classes' => $classes,
+		],
+	] );
 }
 
 /**
@@ -381,7 +383,12 @@ function add_block_class( array $block, string|array $classes ) : array {
  * @return array Modified block.
  */
 function remove_block_class( array $block, string|array $classes ) : array {
-	return apply_block_classes( $block, [], normalize_class_list( $classes ) );
+	return apply_block_class_ops( $block, [
+		[
+			'action' => 'remove',
+			'classes' => $classes,
+		],
+	] );
 }
 
 /**
@@ -396,33 +403,38 @@ function remove_block_class( array $block, string|array $classes ) : array {
  * @return array Modified block.
  */
 function replace_block_class( array $block, string|array $old_classes, string|array $new_classes ) : array {
-	return apply_block_classes(
-		$block,
-		normalize_class_list( $new_classes ),
-		normalize_class_list( $old_classes )
-	);
+	return apply_block_class_ops( $block, [
+		[
+			'action' => 'remove',
+			'classes' => $old_classes,
+		],
+		[
+			'action' => 'add',
+			'classes' => $new_classes,
+		],
+	] );
 }
 
 /**
- * Apply class additions and removals to a block's attribute and markup.
+ * Apply an ordered list of class operations to a block's attribute and markup.
  *
- * Removals are applied before additions so a class can be swapped in one pass.
+ * Each operation is [ 'action' => 'add'|'remove', 'classes' => string|string[] ].
+ * They are applied in the order given, so the last operation naming a class
+ * decides whether the block ends up with it.
  *
- * @param array    $block Block to modify.
- * @param string[] $add Normalized classes to add.
- * @param string[] $remove Normalized classes to remove.
+ * @param array $block Block to modify.
+ * @param array $ops Ordered class operations.
  * @return array Modified block.
  */
-function apply_block_classes( array $block, array $add, array $remove ) : array {
-	if ( empty( $add ) && empty( $remove ) ) {
+function apply_block_class_ops( array $block, array $ops ) : array {
+	if ( empty( $ops ) ) {
 		return $block;
 	}
 
 	$block['attrs'] = $block['attrs'] ?? [];
-	$class_names = merge_class_lists(
+	$class_names = apply_class_ops(
 		normalize_class_list( $block['attrs']['className'] ?? '' ),
-		$add,
-		$remove
+		$ops
 	);
 
 	if ( empty( $class_names ) ) {
@@ -431,12 +443,12 @@ function apply_block_classes( array $block, array $add, array $remove ) : array 
 		$block['attrs']['className'] = implode( ' ', $class_names );
 	}
 
-	$block['innerHTML'] = update_markup_classes( $block['innerHTML'] ?? '', $add, $remove );
+	$block['innerHTML'] = update_markup_classes( $block['innerHTML'] ?? '', $ops );
 
 	// Only the first innerContent chunk can hold the block's own opening tag.
 	// Later chunks are markup between inner blocks.
 	if ( isset( $block['innerContent'][0] ) && is_string( $block['innerContent'][0] ) ) {
-		$block['innerContent'][0] = update_markup_classes( $block['innerContent'][0], $add, $remove );
+		$block['innerContent'][0] = update_markup_classes( $block['innerContent'][0], $ops );
 	}
 
 	return $block;
@@ -445,17 +457,16 @@ function apply_block_classes( array $block, array $add, array $remove ) : array 
 /**
  * Add and remove classes on the first tag in a fragment of markup.
  *
- * The class attribute is written once, from the merged list, rather than
- * mutated class by class. The tag processor's remove_class() drops the
- * attribute entirely when the last class goes, and a subsequent add_class()
- * then leaves stray whitespace behind in the tag.
+ * The operations are folded into a final class list and the class attribute is
+ * written once, rather than mutated class by class. The tag processor's
+ * remove_class() drops the attribute entirely when the last class goes, and a
+ * subsequent add_class() then leaves stray whitespace behind in the tag.
  *
- * @param string   $html Markup to update. May be a fragment, such as a block's opening tag.
- * @param string[] $add Normalized classes to add.
- * @param string[] $remove Normalized classes to remove.
+ * @param string $html Markup to update. May be a fragment, such as a block's opening tag.
+ * @param array  $ops Ordered class operations.
  * @return string Updated markup, unchanged when it contains no tag or needs no edit.
  */
-function update_markup_classes( string $html, array $add, array $remove ) : string {
+function update_markup_classes( string $html, array $ops ) : string {
 	if ( $html === '' ) {
 		return $html;
 	}
@@ -468,7 +479,7 @@ function update_markup_classes( string $html, array $add, array $remove ) : stri
 
 	$existing = $processor->get_attribute( 'class' );
 	$existing = normalize_class_list( is_string( $existing ) ? $existing : '' );
-	$updated = merge_class_lists( $existing, $add, $remove );
+	$updated = apply_class_ops( $existing, $ops );
 
 	// Leave the markup byte-for-byte alone when the class list is unchanged.
 	if ( $updated === $existing ) {
@@ -485,23 +496,31 @@ function update_markup_classes( string $html, array $add, array $remove ) : stri
 }
 
 /**
- * Merge class additions and removals into an existing class list.
+ * Fold an ordered list of class operations into an existing class list.
  *
- * Removals are applied before additions, so a class can be swapped in one
- * pass. Used for both the className attribute and the markup, which is what
- * keeps the two in step.
+ * Operations are applied in order, so a class named by more than one of them
+ * ends up as the last operation left it. Used for both the className attribute
+ * and the markup, which is what keeps the two in step.
  *
  * @param string[] $existing Current classes.
- * @param string[] $add Normalized classes to add.
- * @param string[] $remove Normalized classes to remove.
- * @return string[] Merged class names.
+ * @param array    $ops Ordered class operations, each [ 'action' => 'add'|'remove', 'classes' => string|string[] ].
+ * @return string[] Resulting class names.
  */
-function merge_class_lists( array $existing, array $add, array $remove ) : array {
-	$result = array_values( array_diff( $existing, $remove ) );
+function apply_class_ops( array $existing, array $ops ) : array {
+	$result = $existing;
 
-	foreach ( $add as $class ) {
-		if ( ! in_array( $class, $result, true ) ) {
-			$result[] = $class;
+	foreach ( $ops as $op ) {
+		$classes = normalize_class_list( $op['classes'] ?? [] );
+
+		if ( ( $op['action'] ?? '' ) === 'remove' ) {
+			$result = array_values( array_diff( $result, $classes ) );
+			continue;
+		}
+
+		foreach ( $classes as $class ) {
+			if ( ! in_array( $class, $result, true ) ) {
+				$result[] = $class;
+			}
 		}
 	}
 

@@ -563,6 +563,37 @@ class TemplateTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test a later remove_class overrides an earlier add_class.
+	 *
+	 * Class operations run in call order, so a chain reads the way it executes.
+	 */
+	public function test_remove_class_after_add_class_wins() {
+		$template = new Template( 'test/hero' );
+
+		$content = $template
+			->add_class( 'test/hero', 'core/paragraph', 0, 'flagged' )
+			->remove_class( 'test/hero', 'core/paragraph', 0, 'flagged' )
+			->get_content();
+
+		$this->assertStringContainsString( '<p class="hero-description">', $content );
+		$this->assertStringNotContainsString( 'flagged', $content );
+	}
+
+	/**
+	 * Test a later add_class overrides an earlier remove_class.
+	 */
+	public function test_add_class_after_remove_class_wins() {
+		$template = new Template( 'test/hero' );
+
+		$content = $template
+			->remove_class( 'test/hero', 'core/paragraph', 0, 'flagged' )
+			->add_class( 'test/hero', 'core/paragraph', 0, 'flagged' )
+			->get_content();
+
+		$this->assertStringContainsString( '<p class="hero-description flagged">', $content );
+	}
+
+	/**
 	 * Test add_class combines with a text replacement on the same block.
 	 */
 	public function test_add_class_combines_with_replace_text() {

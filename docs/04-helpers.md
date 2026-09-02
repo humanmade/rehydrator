@@ -292,6 +292,17 @@ Classes may be given as a single name, a space-separated list, or an array of ei
 
 These are the block-level counterparts to the `Template` class's `add_class()`, `remove_class()` and `replace_class()` methods. Use them when walking a block tree yourself — styling every heading in a body of imported content, for instance — rather than targeting a block by pattern and occurrence.
 
+As with the `Template` methods, avoid removing required generated classes from a block (such as `wp-block-heading`): the block's `save()` still emits them, so content without them fails editor validation.
+
+For a sequence of changes on one block, `apply_block_class_ops()` takes an ordered list and folds it into a single attribute write. (This is what the three functions above use internally.)
+
+```php
+$block = Pattern_Transformer\apply_block_class_ops( $block, [
+    [ 'action' => 'add',    'classes' => 'is-style-display legacy' ],
+    [ 'action' => 'remove', 'classes' => 'legacy' ],
+] );
+```
+
 ---
 
 ### `rebuild_inner_content()`

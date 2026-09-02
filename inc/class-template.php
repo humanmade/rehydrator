@@ -211,12 +211,7 @@ class Template {
 	 * @return self For chaining.
 	 */
 	public function add_class( string $pattern_slug, string $block_type, int $occurrence, string|array $classes ) {
-		// Stored as arrays so repeated calls on the same occurrence accumulate.
-		$this->merge_transformation( $pattern_slug, $block_type, $occurrence, [
-			'addClass' => (array) $classes,
-		] );
-
-		return $this;
+		return $this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'add', $classes );
 	}
 
 	/**
@@ -229,11 +224,7 @@ class Template {
 	 * @return self For chaining.
 	 */
 	public function remove_class( string $pattern_slug, string $block_type, int $occurrence, string|array $classes ) {
-		$this->merge_transformation( $pattern_slug, $block_type, $occurrence, [
-			'removeClass' => (array) $classes,
-		] );
-
-		return $this;
+		return $this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'remove', $classes );
 	}
 
 	/**
@@ -249,12 +240,9 @@ class Template {
 	 * @return self For chaining.
 	 */
 	public function replace_class( string $pattern_slug, string $block_type, int $occurrence, string|array $old_classes, string|array $new_classes ) {
-		$this->merge_transformation( $pattern_slug, $block_type, $occurrence, [
-			'removeClass' => (array) $old_classes,
-			'addClass'    => (array) $new_classes,
-		] );
+		$this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'remove', $old_classes );
 
-		return $this;
+		return $this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'add', $new_classes );
 	}
 
 	/**
@@ -455,15 +443,13 @@ class Template {
 				$transformation['replace'] = array_merge( $existing['replace'], $transformation['replace'] );
 			}
 
-			// Likewise for class lists, so add_class() and remove_class() can be
-			// called repeatedly against the same block occurrence.
-			foreach ( [ 'addClass', 'removeClass' ] as $class_key ) {
-				if ( isset( $existing[ $class_key ], $transformation[ $class_key ] ) ) {
-					$transformation[ $class_key ] = array_merge(
-						$existing[ $class_key ],
-						$transformation[ $class_key ]
-					);
-				}
+			// Likewise for class operations, which append so that they stay in
+			// the order they were called in.
+			if ( isset( $existing['classOps'], $transformation['classOps'] ) ) {
+				$transformation['classOps'] = array_merge(
+					$existing['classOps'],
+					$transformation['classOps']
+				);
 			}
 
 			$this->transformations[ $pattern_slug ][ $block_type ][ $occurrence ] = array_merge(
@@ -471,6 +457,33 @@ class Template {
 				$transformation
 			);
 		}
+	}
+
+	/**
+	 * Append a class operation to a block occurrence's transformation.
+	 *
+	 * Operations accumulate in call order, so add_class() and remove_class()
+	 * naming the same class resolve the way the chain reads: the last call
+	 * decides.
+	 *
+	 * @param string          $pattern_slug Source pattern slug.
+	 * @param string          $block_type Block type.
+	 * @param int             $occurrence Which occurrence (0-indexed).
+	 * @param string          $action Either 'add' or 'remove'.
+	 * @param string|string[] $classes Class name, space-separated list, or array of either.
+	 * @return self For chaining.
+	 */
+	protected function merge_class_op( string $pattern_slug, string $block_type, int $occurrence, string $action, string|array $classes ) {
+		$this->merge_transformation( $pattern_slug, $block_type, $occurrence, [
+			'classOps' => [
+				[
+					'action' => $action,
+					'classes' => $classes,
+				],
+			],
+		] );
+
+		return $this;
 	}
 
 	/**
