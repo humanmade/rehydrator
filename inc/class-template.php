@@ -199,6 +199,53 @@ class Template {
 	}
 
 	/**
+	 * Add classes to a specific block.
+	 *
+	 * Updates the block's className attribute and its markup together, so the
+	 * saved content matches what the editor would produce.
+	 *
+	 * @param string          $pattern_slug Source pattern slug.
+	 * @param string          $block_type Block type.
+	 * @param int             $occurrence Which occurrence (0-indexed).
+	 * @param string|string[] $classes Class name, space-separated list, or array of either.
+	 * @return self For chaining.
+	 */
+	public function add_class( string $pattern_slug, string $block_type, int $occurrence, string|array $classes ) {
+		return $this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'add', $classes );
+	}
+
+	/**
+	 * Remove classes from a specific block.
+	 *
+	 * @param string          $pattern_slug Source pattern slug.
+	 * @param string          $block_type Block type.
+	 * @param int             $occurrence Which occurrence (0-indexed).
+	 * @param string|string[] $classes Class name, space-separated list, or array of either.
+	 * @return self For chaining.
+	 */
+	public function remove_class( string $pattern_slug, string $block_type, int $occurrence, string|array $classes ) {
+		return $this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'remove', $classes );
+	}
+
+	/**
+	 * Swap classes on a specific block.
+	 *
+	 * The new classes are added whether or not the old ones were present.
+	 *
+	 * @param string          $pattern_slug Source pattern slug.
+	 * @param string          $block_type Block type.
+	 * @param int             $occurrence Which occurrence (0-indexed).
+	 * @param string|string[] $old_classes Classes to remove.
+	 * @param string|string[] $new_classes Classes to add.
+	 * @return self For chaining.
+	 */
+	public function replace_class( string $pattern_slug, string $block_type, int $occurrence, string|array $old_classes, string|array $new_classes ) {
+		$this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'remove', $old_classes );
+
+		return $this->merge_class_op( $pattern_slug, $block_type, $occurrence, 'add', $new_classes );
+	}
+
+	/**
 	 * Apply a callback transformation to a specific block type within a pattern.
 	 *
 	 * @param string   $pattern_slug Source pattern slug.
@@ -396,11 +443,47 @@ class Template {
 				$transformation['replace'] = array_merge( $existing['replace'], $transformation['replace'] );
 			}
 
+			// Likewise for class operations, which append so that they stay in
+			// the order they were called in.
+			if ( isset( $existing['classOps'], $transformation['classOps'] ) ) {
+				$transformation['classOps'] = array_merge(
+					$existing['classOps'],
+					$transformation['classOps']
+				);
+			}
+
 			$this->transformations[ $pattern_slug ][ $block_type ][ $occurrence ] = array_merge(
 				$existing,
 				$transformation
 			);
 		}
+	}
+
+	/**
+	 * Append a class operation to a block occurrence's transformation.
+	 *
+	 * Operations accumulate in call order, so add_class() and remove_class()
+	 * naming the same class resolve the way the chain reads: the last call
+	 * decides.
+	 *
+	 * @param string          $pattern_slug Source pattern slug.
+	 * @param string          $block_type Block type.
+	 * @param int             $occurrence Which occurrence (0-indexed).
+	 * @param string          $action Either 'add' or 'remove'.
+	 * @param string|string[] $classes Class name, space-separated list, or array of either.
+	 * @return self For chaining.
+	 */
+	protected function merge_class_op( string $pattern_slug, string $block_type, int $occurrence, string $action, string|array $classes ) {
+		$this->merge_transformation( $pattern_slug, $block_type, $occurrence, [
+			'classOps' => [
+				[
+					'action' => $action,
+					'classes' => $classes,
+				],
+			],
+		] );
+
+		return $this;
 	}
 
 	/**

@@ -299,6 +299,14 @@ function apply_block_transformation( array $block, array $transformation ) : arr
 		}
 	}
 
+	// Add and remove classes last, so they apply to the output markup of above
+	// transformations. The ops run in the order they were registered, and are
+	// folded into one attribute write so that a swap doesn't temporarily empty
+	// the class attribute.
+	if ( ! empty( $transformation['classOps'] ) ) {
+		$block = apply_block_class_ops( $block, $transformation['classOps'] );
+	}
+
 	// Callback for custom replacement logic.
 	if ( isset( $transformation['callback'] ) && is_callable( $transformation['callback'] ) ) {
 		$block = $transformation['callback']( $block );
@@ -308,9 +316,26 @@ function apply_block_transformation( array $block, array $transformation ) : arr
 }
 
 /**
+ * Whether an HTML tag is a void element (cannot contain child content).
+ *
+ * @param string $tag_name Lower-case tag name.
+ * @return bool True for void elements such as hr, img and br.
+ */
+function is_void_element( string $tag_name ) : bool {
+	static $void = [
+		'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+		'link', 'meta', 'source', 'track', 'wbr',
+	];
+
+	return in_array( $tag_name, $void, true );
+}
+
+/**
  * Update just the text content of a block, preserving HTML structure.
  *
  * Uses WP_HTML_Tag_Processor to safely update text while keeping all attributes.
+ * Void elements (e.g. core/separator's <hr>) are returned unchanged, since
+ * wrapping text inside them would produce invalid markup.
  *
  * @param array  $block Block to modify.
  * @param string $new_text New text content.
@@ -331,10 +356,27 @@ function update_block_text_content( array $block, string $new_text ) : array {
 	}
 
 	$tag_name = $processor->get_tag();
+	$tag_name_lower = strtolower( $tag_name );
+
+	// Void elements (<hr>, <img>, <br>, …) cannot contain text — wrapping the
+	// new text as <hr>text</hr> would produce invalid markup the editor
+	// rejects. Leave such blocks untouched.
+	if ( is_void_element( $tag_name_lower ) ) {
+		return $block;
+	}
+
 	$attributes = '';
 
 	// Collect all attributes.
 	foreach ( $processor->get_attribute_names_with_prefix( '' ) as $attr_name ) {
+		// The Tag Processor's read-path lexer only excludes whitespace, `=`,
+		// `/` and `>` from names, so a stored name could still carry quotes.
+		// Not exploitable (no whitespace/`=` means no attribute breakout), but
+		// skip anything non-standard rather than re-emit it verbatim.
+		if ( ! preg_match( '/^[a-zA-Z0-9:_.-]+$/', $attr_name ) ) {
+			continue;
+		}
+
 		$attr_value = $processor->get_attribute( $attr_name );
 		if ( is_string( $attr_value ) ) {
 			$attributes .= sprintf( ' %s="%s"', $attr_name, esc_attr( $attr_value ) );
@@ -346,7 +388,6 @@ function update_block_text_content( array $block, string $new_text ) : array {
 
 	// Rebuild the HTML with the new text inside the tag.
 	// Use lowercase tag names for consistency with WordPress standards.
-	$tag_name_lower = strtolower( $tag_name );
 	$html = sprintf( '<%s%s>%s</%s>', $tag_name_lower, $attributes, $new_text, $tag_name_lower );
 
 	$block['innerHTML'] = $html;
@@ -397,6 +438,208 @@ function remove_inner_content_placeholders( array $block, array $removed_indices
 	$block['innerContent'] = array_values( $inner_content );
 
 	return $block;
+}
+
+/**
+ * Add one or more classes to a block.
+ *
+ * Keeps the block's className attribute and its markup synced. The class is
+ * added to attrs['className'] and to the class attribute of the first tag in
+ * the block's own markup. Classes already present are left as-is.
+ *
+ * Dynamic blocks that render their own markup (no innerHTML) receive attribute
+ * updates only, which is enough for WP to output the right class in PHP.
+ *
+ * @param array           $block Block to modify.
+ * @param string|string[] $classes Class name, space-separated list, or array of either.
+ * @return array Modified block.
+ */
+function add_block_class( array $block, string|array $classes ) : array {
+	return apply_block_class_ops( $block, [
+		[
+			'action' => 'add',
+			'classes' => $classes,
+		],
+	] );
+}
+
+/**
+ * Remove one or more classes from a block.
+ *
+ * The inverse of add_block_class(): removes the class(es) from both HTML markup
+ * and attrs['className']. Ignores missing removal classes, and removes className
+ * if the list is empty at the end.
+ *
+ * @param array           $block Block to modify.
+ * @param string|string[] $classes Class name, space-separated list, or array of either.
+ * @return array Modified block.
+ */
+function remove_block_class( array $block, string|array $classes ) : array {
+	return apply_block_class_ops( $block, [
+		[
+			'action' => 'remove',
+			'classes' => $classes,
+		],
+	] );
+}
+
+/**
+ * Swap one set of classes on a block for another.
+ *
+ * The new classes are added whether or not the old ones were present, so this
+ * works as "make sure the block has this style in the end".
+ *
+ * @param array           $block Block to modify.
+ * @param string|string[] $old_classes Classes to remove.
+ * @param string|string[] $new_classes Classes to add.
+ * @return array Modified block.
+ */
+function replace_block_class( array $block, string|array $old_classes, string|array $new_classes ) : array {
+	return apply_block_class_ops( $block, [
+		[
+			'action' => 'remove',
+			'classes' => $old_classes,
+		],
+		[
+			'action' => 'add',
+			'classes' => $new_classes,
+		],
+	] );
+}
+
+/**
+ * Apply an ordered list of class operations to a block's attribute and markup.
+ *
+ * Each operation is [ 'action' => 'add'|'remove', 'classes' => string|string[] ].
+ * They are applied in the order given, so the last operation naming a class
+ * decides whether the block ends up with it.
+ *
+ * @param array $block Block to modify.
+ * @param array $ops Ordered class operations.
+ * @return array Modified block.
+ */
+function apply_block_class_ops( array $block, array $ops ) : array {
+	if ( empty( $ops ) ) {
+		return $block;
+	}
+
+	$block['attrs'] = $block['attrs'] ?? [];
+	$class_names = apply_class_ops(
+		normalize_class_list( $block['attrs']['className'] ?? '' ),
+		$ops
+	);
+
+	if ( empty( $class_names ) ) {
+		unset( $block['attrs']['className'] );
+	} else {
+		$block['attrs']['className'] = implode( ' ', $class_names );
+	}
+
+	$block['innerHTML'] = update_markup_classes( $block['innerHTML'] ?? '', $ops );
+
+	// Only the first innerContent chunk can hold the block's own opening tag.
+	// Later chunks are markup between inner blocks.
+	if ( isset( $block['innerContent'][0] ) && is_string( $block['innerContent'][0] ) ) {
+		$block['innerContent'][0] = update_markup_classes( $block['innerContent'][0], $ops );
+	}
+
+	return $block;
+}
+
+/**
+ * Add and remove classes on the first tag in a fragment of markup.
+ *
+ * The operations are folded into a final class list and the class attribute is
+ * written once, rather than mutated class by class. The tag processor's
+ * remove_class() drops the attribute entirely when the last class goes, and a
+ * subsequent add_class() then leaves stray whitespace behind in the tag.
+ *
+ * @param string $html Markup to update. May be a fragment, such as a block's opening tag.
+ * @param array  $ops Ordered class operations.
+ * @return string Updated markup, unchanged when it contains no tag or needs no edit.
+ */
+function update_markup_classes( string $html, array $ops ) : string {
+	if ( $html === '' ) {
+		return $html;
+	}
+
+	$processor = new WP_HTML_Tag_Processor( $html );
+
+	if ( ! $processor->next_tag() ) {
+		return $html;
+	}
+
+	$existing = $processor->get_attribute( 'class' );
+	$existing = normalize_class_list( is_string( $existing ) ? $existing : '' );
+	$updated = apply_class_ops( $existing, $ops );
+
+	// Leave the markup byte-for-byte alone when the class list is unchanged.
+	if ( $updated === $existing ) {
+		return $html;
+	}
+
+	if ( empty( $updated ) ) {
+		$processor->remove_attribute( 'class' );
+	} else {
+		$processor->set_attribute( 'class', implode( ' ', $updated ) );
+	}
+
+	return $processor->get_updated_html();
+}
+
+/**
+ * Fold an ordered list of class operations into an existing class list.
+ *
+ * Operations are applied in order, so a class named by more than one of them
+ * ends up as the last operation left it. Used for both the className attribute
+ * and the markup, which is what keeps the two in step.
+ *
+ * @param string[] $existing Current classes.
+ * @param array    $ops Ordered class operations, each [ 'action' => 'add'|'remove', 'classes' => string|string[] ].
+ * @return string[] Resulting class names.
+ */
+function apply_class_ops( array $existing, array $ops ) : array {
+	$result = $existing;
+
+	foreach ( $ops as $op ) {
+		$classes = normalize_class_list( $op['classes'] ?? [] );
+
+		if ( ( $op['action'] ?? '' ) === 'remove' ) {
+			$result = array_values( array_diff( $result, $classes ) );
+			continue;
+		}
+
+		foreach ( $classes as $class ) {
+			if ( ! in_array( $class, $result, true ) ) {
+				$result[] = $class;
+			}
+		}
+	}
+
+	return $result;
+}
+
+/**
+ * Normalize class input to a list of unique class names.
+ *
+ * Accepts a single class, a space-separated list, or an array of either, so
+ * callers can pass whatever shape their source data is in.
+ *
+ * @param string|string[] $classes Classes to normalize.
+ * @return string[] Unique class names.
+ */
+function normalize_class_list( string|array $classes ) : array {
+	$result = [];
+
+	foreach ( (array) $classes as $item ) {
+		foreach ( preg_split( '/\s+/', trim( (string) $item ) ) as $class ) {
+			if ( $class !== '' && ! in_array( $class, $result, true ) ) {
+				$result[] = $class;
+			}
+		}
+	}
+
+	return $result;
 }
 
 /**
@@ -471,6 +714,12 @@ function rebuild_inner_content( array $block ) : array {
 	$attributes = '';
 
 	foreach ( $processor->get_attribute_names_with_prefix( '' ) as $attr_name ) {
+		// Skip non-standard attribute names rather than re-emit them verbatim
+		// (see update_block_text_content for the rationale).
+		if ( ! preg_match( '/^[a-zA-Z0-9:_.-]+$/', $attr_name ) ) {
+			continue;
+		}
+
 		$attr_value = $processor->get_attribute( $attr_name );
 		if ( is_string( $attr_value ) ) {
 			$attributes .= sprintf( ' %s="%s"', $attr_name, esc_attr( $attr_value ) );
