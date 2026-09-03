@@ -80,17 +80,18 @@ function resolve_and_tag_patterns( array $blocks, string $source_pattern = '' ) 
 			continue;
 		}
 
-		// Process inner blocks. Whitespace-only freeform blocks from resolved
-		// pattern markup are dropped: inner blocks may not hold them, and the
-		// parent's own innerContent already carries any literal markup.
+		// Process inner blocks. A resolved pattern may contain freeform blocks
+		// (whitespace or literal HTML between its top-level blocks). Inner blocks
+		// can't hold those, so they become literal chunks of the parent's
+		// innerContent instead.
 		if ( ! empty( $block['innerBlocks'] ) ) {
 			$block = map_inner_blocks(
 				$block,
 				function ( array $child ) use ( $source_pattern ) {
-					return array_values( array_filter(
-						resolve_and_tag_patterns( [ $child ], $source_pattern ),
-						fn( $b ) => ! empty( $b['blockName'] )
-					) );
+					return array_map(
+						fn( $b ) => empty( $b['blockName'] ) ? $b['innerHTML'] : $b,
+						resolve_and_tag_patterns( [ $child ], $source_pattern )
+					);
 				}
 			);
 		}
@@ -372,25 +373,28 @@ function update_block_text_content( array $block, string $new_text ) : array {
 }
 
 /**
- * Replace each inner block with the blocks a callback returns for it.
+ * Replace each inner block with whatever a callback returns for it.
  *
- * The callback receives one child and returns zero or more blocks to replace
- * it with. innerContent is updated in sync; a child's null placeholder is
- * replaced by one null per returned block. Every literal HTML chunk (including
- * markup between children) is kept as-is. innerContent gets fully regenerated
- * if the placeholders don't line up with children.
+ * The callback receives one child and returns an array of zero or more blocks,
+ * optionally mixed with strings of literal HTML. innerContent is kept in sync:
+ * the child's null placeholder becomes one null per returned block, and any
+ * returned strings are inserted as literal chunks. Existing literal chunks,
+ * wrapper markup and anything between children alike, are left as they are.
+ *
+ * Falls back to rebuild_inner_content() if the placeholder count doesn't match
+ * the child count.
  *
  * @param array    $block Block whose inner blocks should be processed.
- * @param callable $callback function( array $child ) : array of replacement blocks.
+ * @param callable $callback function( array $child ) : array of blocks and/or literal HTML strings.
  * @return array Block with updated innerBlocks and innerContent.
  */
 function map_inner_blocks( array $block, callable $callback ) : array {
 	$replacements = array_map( $callback, $block['innerBlocks'] ?? [] );
 	$inner_content = $block['innerContent'] ?? [];
 
-	$block['innerBlocks'] = array_merge( [], ...$replacements );
+	$block['innerBlocks'] = array_values( array_filter( array_merge( [], ...$replacements ), 'is_array' ) );
 
-	if ( count( array_keys( $inner_content, null, true ) ) !== count( $replacements ) ) {
+	if ( count( array_filter( $inner_content, 'is_null' ) ) !== count( $replacements ) ) {
 		return rebuild_inner_content( $block );
 	}
 
@@ -402,10 +406,9 @@ function map_inner_blocks( array $block, callable $callback ) : array {
 			continue;
 		}
 
-		$block['innerContent'] = array_merge(
-			$block['innerContent'],
-			array_fill( 0, count( array_shift( $replacements ) ), null )
-		);
+		foreach ( array_shift( $replacements ) as $item ) {
+			$block['innerContent'][] = is_string( $item ) ? $item : null;
+		}
 	}
 
 	return $block;
@@ -622,7 +625,7 @@ function normalize_class_list( string|array $classes ) : array {
  * Tries to use wrapper chunks the parser already recorded in innerContent, then
  * falls back to reconstructing a single wrapper tag with WP_HTML_Tag_Processor.
  * Only the outermost chunks survive, so literal markup between inner blocks is
- * lost. Prefer map_inner_blocks() when replacing children one for one.
+ * lost. Prefer map_inner_blocks() when changing the children of a block.
  *
  * @param array $block Block with potentially modified innerBlocks.
  * @return array Block with corrected innerContent.
