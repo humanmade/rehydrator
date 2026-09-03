@@ -305,12 +305,26 @@ $block = Pattern_Transformer\apply_block_class_ops( $block, [
 
 ---
 
+### `map_inner_blocks()`
+
+Replace each inner block of a block with whatever a callback returns for it, keeping `innerContent` in sync. WordPress block serialization requires `innerContent` to hold one `null` placeholder per inner block, interleaved with literal HTML strings. The callback returns an array of blocks and, optionally, literal HTML strings. Each child's placeholder becomes one `null` per returned block, with returned strings inserted as literal chunks. Existing literal chunks, including markup between children, are left untouched.
+
+```php
+// Drop every paragraph, keeping any separator markup between blocks.
+$block = Pattern_Transformer\map_inner_blocks(
+    $block,
+    fn( array $child ) => $child['blockName'] === 'core/paragraph' ? [] : [ $child ]
+);
+```
+
+Use this when directly manipulating `innerBlocks` outside of the `Template` API.
+
+---
+
 ### `rebuild_inner_content()`
 
-Rebuild the `innerContent` array for a block after its `innerBlocks` have been modified. WordPress block serialization requires `innerContent` to have `null` placeholders for each inner block interleaved with the wrapper HTML strings.
+Regenerate the `innerContent` array for a block from its wrapper markup and the current `innerBlocks` count. Only the outermost HTML chunks are kept, so literal markup between inner blocks is lost. `map_inner_blocks()` falls back to this when the placeholder count does not match the children.
 
 ```php
 $block = Pattern_Transformer\rebuild_inner_content( $block );
 ```
-
-Use this when directly manipulating `innerBlocks` outside of the `Template` API.
