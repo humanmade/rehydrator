@@ -628,10 +628,56 @@ class PatternTransformerTest extends WP_UnitTestCase {
 
 		$this->assertCount( 3, $result[0]['innerBlocks'] );
 		$this->assertSame(
-			[ '<div class="wp-block-group">', null, '<hr class="divider"/>', null, null, '</div>' ],
+			[ '<div class="wp-block-group">', null, '<hr class="divider"/>', null, "\n", null, '</div>' ],
 			$result[0]['innerContent']
 		);
 		$this->assertSame( 'test/two-paragraphs', $result[0]['innerBlocks'][2]['_source_pattern'] );
+	}
+
+	/**
+	 * Literal HTML between a nested pattern's own top-level blocks survives
+	 * resolution inside a wrapper, and removal of one of those blocks.
+	 */
+	public function test_resolve_and_tag_patterns_keeps_literal_between_pattern_blocks() {
+		register_block_pattern( 'test/divided-paragraphs', [
+			'title' => 'Divided Paragraphs',
+			'content' => '<!-- wp:paragraph --><p>Second</p><!-- /wp:paragraph -->'
+				. '<hr class="inner-divider"/>'
+				. '<!-- wp:paragraph --><p>Third</p><!-- /wp:paragraph -->',
+		] );
+
+		$markup = '<!-- wp:group --><div class="wp-block-group">'
+			. '<!-- wp:pattern {"slug":"test/divided-paragraphs"} /-->'
+			. '</div><!-- /wp:group -->';
+
+		$resolved = Pattern_Transformer\resolve_and_tag_patterns( parse_blocks( $markup ) );
+
+		unregister_block_pattern( 'test/divided-paragraphs' );
+
+		$this->assertSame(
+			'<!-- wp:group --><div class="wp-block-group">'
+			. '<!-- wp:paragraph --><p>Second</p><!-- /wp:paragraph -->'
+			. '<hr class="inner-divider"/>'
+			. '<!-- wp:paragraph --><p>Third</p><!-- /wp:paragraph -->'
+			. '</div><!-- /wp:group -->',
+			serialize_blocks( $resolved )
+		);
+
+		$transformations = [
+			'test/divided-paragraphs' => [
+				'core/paragraph' => [
+					1 => [ '_delete' => true ],
+				],
+			],
+		];
+
+		$this->assertSame(
+			'<!-- wp:group --><div class="wp-block-group">'
+			. '<!-- wp:paragraph --><p>Second</p><!-- /wp:paragraph -->'
+			. '<hr class="inner-divider"/>'
+			. '</div><!-- /wp:group -->',
+			serialize_blocks( Pattern_Transformer\apply_pattern_transformations( $resolved, $transformations ) )
+		);
 	}
 
 	/**
