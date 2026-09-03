@@ -388,14 +388,10 @@ class Template {
 
 			// Process inner blocks recursively.
 			if ( ! empty( $block['innerBlocks'] ) ) {
-				$block['innerBlocks'] = $this->replace_placeholder_recursive(
-					$block['innerBlocks'],
-					$placeholder_name,
-					$content_blocks
+				$block = Pattern_Transformer\map_inner_blocks(
+					$block,
+					fn( array $child ) => $this->replace_placeholder_recursive( [ $child ], $placeholder_name, $content_blocks )
 				);
-
-				// Rebuild innerContent after modifying innerBlocks.
-				$block = Pattern_Transformer\rebuild_inner_content( $block );
 			}
 
 			$result[] = $block;

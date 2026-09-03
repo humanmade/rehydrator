@@ -79,6 +79,14 @@ class TemplateTest extends WP_UnitTestCase {
 				'content' => $this->load_pattern( 'simple-heading-paragraph' ),
 			]
 		);
+
+		register_block_pattern(
+			'test/separated-paragraphs',
+			[
+				'title' => 'Separated Paragraphs',
+				'content' => $this->load_pattern( 'separated-paragraphs' ),
+			]
+		);
 	}
 
 	/**
@@ -89,6 +97,7 @@ class TemplateTest extends WP_UnitTestCase {
 		unregister_block_pattern( 'test/footer-cta' );
 		unregister_block_pattern( 'test/template-article' );
 		unregister_block_pattern( 'test/simple-heading' );
+		unregister_block_pattern( 'test/separated-paragraphs' );
 
 		parent::tear_down();
 	}
@@ -268,6 +277,36 @@ class TemplateTest extends WP_UnitTestCase {
 
 		$this->assertStringContainsString( 'First content paragraph', $content );
 		$this->assertStringContainsString( 'Second content paragraph', $content );
+	}
+
+	/**
+	 * Test remove_block keeps literal markup between inner blocks.
+	 */
+	public function test_remove_block_preserves_interleaved_literal() {
+		$content = ( new Template( 'test/separated-paragraphs' ) )
+			->remove_block( 'test/separated-paragraphs', 'core/paragraph', 1 )
+			->get_content();
+
+		$this->assertStringContainsString( 'First paragraph', $content );
+		$this->assertStringNotContainsString( 'Second paragraph', $content );
+		$this->assertStringContainsString( '<hr class="divider"/>', $content );
+	}
+
+	/**
+	 * Test replace_placeholder keeps literal markup between inner blocks.
+	 */
+	public function test_replace_placeholder_preserves_interleaved_literal() {
+		$content = ( new Template( 'test/separated-paragraphs' ) )
+			->replace_placeholder( 'content-placeholder', [
+				Blocks\create_paragraph( 'Inserted one.' ),
+				Blocks\create_paragraph( 'Inserted two.' ),
+			] )
+			->get_content();
+
+		$this->assertStringContainsString( '<hr class="divider"/>', $content );
+		$this->assertStringContainsString( 'Inserted one.', $content );
+		$this->assertStringContainsString( 'Inserted two.', $content );
+		$this->assertStringNotContainsString( 'Second paragraph', $content );
 	}
 
 	/**

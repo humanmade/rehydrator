@@ -573,11 +573,8 @@ class PatternTransformerTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Removing an inner block must preserve literal HTML that sits between
-	 * inner blocks (e.g. an <hr> separator), not just the outer wrapper.
-	 *
-	 * Regression: rebuilding innerContent from scratch on removal kept only the
-	 * first and last chunks and silently discarded interleaved literals.
+	 * Removing an inner block keeps literal HTML that sits between inner
+	 * blocks, such as an <hr> separator, not just the outer wrapper.
 	 */
 	public function test_apply_pattern_transformations_preserves_interleaved_literal_on_remove() {
 		$markup = '<!-- wp:group --><div class="wp-block-group">'
@@ -588,7 +585,6 @@ class PatternTransformerTest extends WP_UnitTestCase {
 
 		$blocks = Pattern_Transformer\tag_blocks_recursively( parse_blocks( $markup ), 'test/sep' );
 
-		// Delete the second paragraph.
 		$transformations = [
 			'test/sep' => [
 				'core/paragraph' => [
@@ -598,17 +594,81 @@ class PatternTransformerTest extends WP_UnitTestCase {
 		];
 
 		$result = Pattern_Transformer\apply_pattern_transformations( $blocks, $transformations );
-		$serialized = serialize_blocks( $result );
 
-		$this->assertStringContainsString( 'First', $serialized );
-		$this->assertStringNotContainsString( 'Second', $serialized );
-		// The literal <hr> that sat between the two paragraphs must survive.
-		$this->assertStringContainsString( 'divider', $serialized );
+		$this->assertSame(
+			'<!-- wp:group --><div class="wp-block-group">'
+			. '<!-- wp:paragraph --><p>First</p><!-- /wp:paragraph -->'
+			. '<hr class="divider"/>'
+			. '</div><!-- /wp:group -->',
+			serialize_blocks( $result )
+		);
+	}
 
-		// And the result must still parse into a single group with one paragraph.
-		$reparsed = array_values( array_filter( parse_blocks( $serialized ), fn( $b ) => ! empty( $b['blockName'] ) ) );
-		$this->assertCount( 1, $reparsed );
-		$this->assertSame( 'core/group', $reparsed[0]['blockName'] );
-		$this->assertCount( 1, array_filter( $reparsed[0]['innerBlocks'], fn( $b ) => ! empty( $b['blockName'] ) ) );
+	/**
+	 * Resolving a nested pattern reference keeps literal HTML around it and
+	 * expands its placeholder to one per resolved block.
+	 */
+	public function test_resolve_and_tag_patterns_preserves_interleaved_literal() {
+		register_block_pattern( 'test/two-paragraphs', [
+			'title' => 'Two Paragraphs',
+			'content' => '<!-- wp:paragraph --><p>Second</p><!-- /wp:paragraph -->'
+				. "\n"
+				. '<!-- wp:paragraph --><p>Third</p><!-- /wp:paragraph -->',
+		] );
+
+		$markup = '<!-- wp:group --><div class="wp-block-group">'
+			. '<!-- wp:paragraph --><p>First</p><!-- /wp:paragraph -->'
+			. '<hr class="divider"/>'
+			. '<!-- wp:pattern {"slug":"test/two-paragraphs"} /-->'
+			. '</div><!-- /wp:group -->';
+
+		$result = Pattern_Transformer\resolve_and_tag_patterns( parse_blocks( $markup ) );
+
+		unregister_block_pattern( 'test/two-paragraphs' );
+
+		$this->assertCount( 3, $result[0]['innerBlocks'] );
+		$this->assertSame(
+			[ '<div class="wp-block-group">', null, '<hr class="divider"/>', null, null, '</div>' ],
+			$result[0]['innerContent']
+		);
+		$this->assertSame( 'test/two-paragraphs', $result[0]['innerBlocks'][2]['_source_pattern'] );
+	}
+
+	/**
+	 * Cover blocks carry image and overlay markup before the inner container.
+	 * Removing a resolved child must keep that markup and the remaining child.
+	 */
+	public function test_remove_inside_cover_keeps_wrapper_and_sibling() {
+		register_block_pattern( 'test/two-paragraphs', [
+			'title' => 'Two Paragraphs',
+			'content' => '<!-- wp:paragraph --><p>First</p><!-- /wp:paragraph -->'
+				. '<!-- wp:paragraph --><p>Second</p><!-- /wp:paragraph -->',
+		] );
+
+		$markup = '<!-- wp:cover {"url":"x.jpg"} --><div class="wp-block-cover">'
+			. '<img class="wp-block-cover__image-background" src="x.jpg"/>'
+			. '<span aria-hidden="true" class="wp-block-cover__background has-background-dim"></span>'
+			. '<div class="wp-block-cover__inner-container">'
+			. '<!-- wp:pattern {"slug":"test/two-paragraphs"} /-->'
+			. '</div></div><!-- /wp:cover -->';
+
+		$resolved = Pattern_Transformer\resolve_and_tag_patterns( parse_blocks( $markup ) );
+
+		unregister_block_pattern( 'test/two-paragraphs' );
+
+		$transformations = [
+			'test/two-paragraphs' => [
+				'core/paragraph' => [
+					0 => [ '_delete' => true ],
+				],
+			],
+		];
+
+		$serialized = serialize_blocks( Pattern_Transformer\apply_pattern_transformations( $resolved, $transformations ) );
+
+		$this->assertStringContainsString( 'wp-block-cover__image-background', $serialized );
+		$this->assertStringContainsString( 'wp-block-cover__background', $serialized );
+		$this->assertStringNotContainsString( 'First', $serialized );
+		$this->assertStringContainsString( '<div class="wp-block-cover__inner-container"><!-- wp:paragraph --><p>Second</p><!-- /wp:paragraph --></div>', $serialized );
 	}
 }

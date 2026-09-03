@@ -80,23 +80,19 @@ function resolve_and_tag_patterns( array $blocks, string $source_pattern = '' ) 
 			continue;
 		}
 
-		// Process inner blocks.
+		// Process inner blocks. Whitespace-only freeform blocks from resolved
+		// pattern markup are dropped: inner blocks may not hold them, and the
+		// parent's own innerContent already carries any literal markup.
 		if ( ! empty( $block['innerBlocks'] ) ) {
-			$block['innerBlocks'] = resolve_and_tag_patterns(
-				$block['innerBlocks'],
-				$source_pattern
-			);
-
-			// Filter out null/whitespace blocks (these are preserved in innerContent, not innerBlocks).
-			$block['innerBlocks'] = array_values( array_filter(
-				$block['innerBlocks'],
-				function( $inner_block ) {
-					return ! empty( $inner_block['blockName'] );
+			$block = map_inner_blocks(
+				$block,
+				function ( array $child ) use ( $source_pattern ) {
+					return array_values( array_filter(
+						resolve_and_tag_patterns( [ $child ], $source_pattern ),
+						fn( $b ) => ! empty( $b['blockName'] )
+					) );
 				}
-			) );
-
-			// Rebuild innerContent to match the new innerBlocks structure after resolution.
-			$block = rebuild_inner_content( $block );
+			);
 		}
 
 		$result[] = $block;
@@ -136,18 +132,12 @@ function tag_blocks_recursively( array $blocks, string $source_pattern ) : array
  * @param array $blocks Blocks with _source_pattern metadata.
  * @param array $transformations Transformations per pattern.
  * @param array $block_type_counters Counter array (for internal recursion).
- * @param array $removed_indices Out-param: zero-based positions (in $blocks)
- *                               of blocks removed by a _delete transformation,
- *                               so the caller can splice the matching
- *                               innerContent placeholders. For internal recursion.
  * @return array Transformed blocks.
  */
-function apply_pattern_transformations( array $blocks, array $transformations, array &$block_type_counters = [], array &$removed_indices = [] ) : array {
+function apply_pattern_transformations( array $blocks, array $transformations, array &$block_type_counters = [] ) : array {
 	$result = [];
-	$position = -1;
 
 	foreach ( $blocks as $block ) {
-		$position++;
 		// Check both _source_pattern (from resolved pattern references) and
 		// metadata.patternName (from inline content with semantic pattern grouping).
 		$source_pattern = $block['_source_pattern'] ?? $block['attrs']['metadata']['patternName'] ?? '';
@@ -207,11 +197,8 @@ function apply_pattern_transformations( array $blocks, array $transformations, a
 			}
 		}
 
-		// Skip this block if marked for deletion, recording its position so the
-		// caller can drop the matching innerContent placeholder (not the
-		// literal chunks around it).
+		// Skip this block if marked for deletion.
 		if ( $should_delete ) {
-			$removed_indices[] = $position;
 			continue;
 		}
 
@@ -220,8 +207,6 @@ function apply_pattern_transformations( array $blocks, array $transformations, a
 
 		// Process inner blocks.
 		if ( ! empty( $block['innerBlocks'] ) ) {
-			$original_inner_count = count( $block['innerBlocks'] );
-
 			// Tag inner blocks with parent's source pattern if they don't have one.
 			// This ensures transformations targeting a pattern also apply to nested blocks.
 			// Do this recursively for ALL descendant blocks.
@@ -229,22 +214,12 @@ function apply_pattern_transformations( array $blocks, array $transformations, a
 				$block['innerBlocks'] = tag_blocks_recursively( $block['innerBlocks'], $source_pattern );
 			}
 
-			$child_removed = [];
-			$block['innerBlocks'] = apply_pattern_transformations(
-				$block['innerBlocks'],
-				$transformations,
-				$block_type_counters,
-				$child_removed
+			$block = map_inner_blocks(
+				$block,
+				function ( array $child ) use ( $transformations, &$block_type_counters ) {
+					return apply_pattern_transformations( [ $child ], $transformations, $block_type_counters );
+				}
 			);
-
-			if ( ! empty( $child_removed ) ) {
-				// Drop only the placeholders for the removed children, keeping
-				// every literal HTML chunk that sat between inner blocks.
-				$block = remove_inner_content_placeholders( $block, $child_removed );
-			} elseif ( count( $block['innerBlocks'] ) !== $original_inner_count ) {
-				// Count changed some other way — fall back to regeneration.
-				$block = rebuild_inner_content( $block );
-			}
 		}
 
 		$result[] = $block;
@@ -397,45 +372,41 @@ function update_block_text_content( array $block, string $new_text ) : array {
 }
 
 /**
- * Remove the innerContent placeholders for specific removed child blocks.
+ * Replace each inner block with the blocks a callback returns for it.
  *
- * innerContent interleaves literal HTML chunks (strings) with one null per
- * inner block, in order. When inner blocks are deleted we must drop only the
- * matching null placeholders and keep every literal chunk — including markup
- * that sits *between* inner blocks (e.g. an <hr> separator). Regenerating
- * innerContent from scratch would keep only the outermost chunks and silently
- * discard those interleaved literals, so this targeted splice is preferred;
- * rebuild_inner_content() is used only as a fallback when the placeholder
- * layout doesn't match expectations.
+ * The callback receives one child and returns zero or more blocks to stand in
+ * its place. innerContent is updated in step: the child's null placeholder is
+ * replaced by one null per returned block, and every literal HTML chunk,
+ * including markup between children, is kept as-is. If the placeholders do not
+ * line up with the children, innerContent is regenerated instead.
  *
- * @param array $block           Block whose innerBlocks were reduced.
- * @param array $removed_indices Zero-based positions of the removed children,
- *                               relative to the original innerBlocks order.
- * @return array Block with corrected innerContent.
+ * @param array    $block Block whose inner blocks should be processed.
+ * @param callable $callback function( array $child ) : array of replacement blocks.
+ * @return array Block with updated innerBlocks and innerContent.
  */
-function remove_inner_content_placeholders( array $block, array $removed_indices ) : array {
+function map_inner_blocks( array $block, callable $callback ) : array {
+	$replacements = array_map( $callback, $block['innerBlocks'] ?? [] );
 	$inner_content = $block['innerContent'] ?? [];
 
-	// Array positions of each null placeholder, in order (Nth null = Nth child).
-	$null_positions = [];
-	foreach ( $inner_content as $pos => $chunk ) {
-		if ( $chunk === null ) {
-			$null_positions[] = $pos;
-		}
+	$block['innerBlocks'] = array_merge( [], ...$replacements );
+
+	if ( count( array_keys( $inner_content, null, true ) ) !== count( $replacements ) ) {
+		return rebuild_inner_content( $block );
 	}
 
-	// Splice from the highest child index down so earlier positions stay valid.
-	rsort( $removed_indices );
+	$block['innerContent'] = [];
 
-	foreach ( $removed_indices as $child_index ) {
-		if ( ! isset( $null_positions[ $child_index ] ) ) {
-			// Placeholder layout isn't what we expect — regenerate instead.
-			return rebuild_inner_content( $block );
+	foreach ( $inner_content as $chunk ) {
+		if ( $chunk !== null ) {
+			$block['innerContent'][] = $chunk;
+			continue;
 		}
-		array_splice( $inner_content, $null_positions[ $child_index ], 1 );
-	}
 
-	$block['innerContent'] = array_values( $inner_content );
+		$block['innerContent'] = array_merge(
+			$block['innerContent'],
+			array_fill( 0, count( array_shift( $replacements ) ), null )
+		);
+	}
 
 	return $block;
 }
@@ -650,8 +621,8 @@ function normalize_class_list( string|array $classes ) : array {
  *
  * Tries to use wrapper chunks the parser already recorded in innerContent, then
  * falls back to reconstructing a single wrapper tag with WP_HTML_Tag_Processor.
- *
- * Special handling for cover blocks to preserve image and overlay elements.
+ * Only the outermost chunks survive, so literal markup between inner blocks is
+ * lost. Prefer map_inner_blocks() when replacing children one for one.
  *
  * @param array $block Block with potentially modified innerBlocks.
  * @return array Block with corrected innerContent.
@@ -666,15 +637,6 @@ function rebuild_inner_content( array $block ) : array {
 	}
 
 	$inner_html = $block['innerHTML'] ?? '';
-	$block_name = $block['blockName'] ?? '';
-
-	// Special handling for cover blocks - preserve image and overlay HTML.
-	if ( $block_name === 'core/cover' && ! empty( $inner_html ) ) {
-		// For cover blocks, preserve the original innerContent structure.
-		// The innerHTML contains the image, overlay, and inner-container div.
-		// We need to keep this structure intact.
-		return $block;
-	}
 
 	// If there's no wrapper HTML, innerContent is just nulls.
 	if ( empty( $inner_html ) ) {
