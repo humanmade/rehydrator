@@ -301,9 +301,26 @@ function apply_block_transformation( array $block, array $transformation ) : arr
 }
 
 /**
+ * Whether an HTML tag is a void element (cannot contain child content).
+ *
+ * @param string $tag_name Lower-case tag name.
+ * @return bool True for void elements such as hr, img and br.
+ */
+function is_void_element( string $tag_name ) : bool {
+	static $void = [
+		'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+		'link', 'meta', 'source', 'track', 'wbr',
+	];
+
+	return in_array( $tag_name, $void, true );
+}
+
+/**
  * Update just the text content of a block, preserving HTML structure.
  *
  * Uses WP_HTML_Tag_Processor to safely update text while keeping all attributes.
+ * Void elements (e.g. core/separator's <hr>) are returned unchanged, since
+ * wrapping text inside them would produce invalid markup.
  *
  * @param array  $block Block to modify.
  * @param string $new_text New text content.
@@ -324,10 +341,27 @@ function update_block_text_content( array $block, string $new_text ) : array {
 	}
 
 	$tag_name = $processor->get_tag();
+	$tag_name_lower = strtolower( $tag_name );
+
+	// Void elements (<hr>, <img>, <br>, …) cannot contain text — wrapping the
+	// new text as <hr>text</hr> would produce invalid markup the editor
+	// rejects. Leave such blocks untouched.
+	if ( is_void_element( $tag_name_lower ) ) {
+		return $block;
+	}
+
 	$attributes = '';
 
 	// Collect all attributes.
 	foreach ( $processor->get_attribute_names_with_prefix( '' ) as $attr_name ) {
+		// The Tag Processor's read-path lexer only excludes whitespace, `=`,
+		// `/` and `>` from names, so a stored name could still carry quotes.
+		// Not exploitable (no whitespace/`=` means no attribute breakout), but
+		// skip anything non-standard rather than re-emit it verbatim.
+		if ( ! preg_match( '/^[a-zA-Z0-9:_.-]+$/', $attr_name ) ) {
+			continue;
+		}
+
 		$attr_value = $processor->get_attribute( $attr_name );
 		if ( is_string( $attr_value ) ) {
 			$attributes .= sprintf( ' %s="%s"', $attr_name, esc_attr( $attr_value ) );
@@ -339,7 +373,6 @@ function update_block_text_content( array $block, string $new_text ) : array {
 
 	// Rebuild the HTML with the new text inside the tag.
 	// Use lowercase tag names for consistency with WordPress standards.
-	$tag_name_lower = strtolower( $tag_name );
 	$html = sprintf( '<%s%s>%s</%s>', $tag_name_lower, $attributes, $new_text, $tag_name_lower );
 
 	$block['innerHTML'] = $html;
@@ -622,6 +655,12 @@ function rebuild_inner_content( array $block ) : array {
 	$attributes = '';
 
 	foreach ( $processor->get_attribute_names_with_prefix( '' ) as $attr_name ) {
+		// Skip non-standard attribute names rather than re-emit them verbatim
+		// (see update_block_text_content for the rationale).
+		if ( ! preg_match( '/^[a-zA-Z0-9:_.-]+$/', $attr_name ) ) {
+			continue;
+		}
+
 		$attr_value = $processor->get_attribute( $attr_name );
 		if ( is_string( $attr_value ) ) {
 			$attributes .= sprintf( ' %s="%s"', $attr_name, esc_attr( $attr_value ) );
