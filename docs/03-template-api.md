@@ -117,6 +117,81 @@ Search and replace a string within a specific block's innerHTML.
 
 ---
 
+## Classes
+
+A block's classes live in two places that have to stay synchronized: the `className` attribute in the serialized JSON, and the `class` attribute of the block's HTML markup. These three methods provide an easy way to change block classes while ensuring these attributes stay properly aligned.
+
+Classes may be given as a single string name, a space-separated list, or an array of either. Repeated calls against the same block modify a running list of classes rather than starting over from the ones declared in a pattern.
+
+Calls apply in the order they are chained. If the same class is both added and removed, the last call naming it wins:
+
+```php
+->add_class( 'theme/hero', 'core/heading', 0, 'is-style-display' )
+->remove_class( 'theme/hero', 'core/heading', 0, 'is-style-display' )
+// Class will NOT be present on the rendered heading.
+```
+
+This matters when the two calls are separated by conditional logic and the class name comes from source data. It is the one place in this API where registration order is significant: every other transformation method applies in a fixed sequence regardless of how it was chained.
+
+> [!NOTE]
+> **Avoid removing generated classes for core blocks.** Blocks emit their own classes from `save()`, like `wp-block-heading`, `wp-block-group`, and so on. Removing one produces content which will fail in-editor validation. To avoid these errors, only adjust a block's additional or stylistic classes.
+
+### `add_class()`
+
+```php
+->add_class(
+    pattern_slug: 'theme/hero',
+    block_type:   'core/heading',
+    occurrence:   0,
+    classes:      'is-style-display'
+)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `$pattern_slug` | `string` | Slug of the pattern containing the target block |
+| `$block_type` | `string` | Block type name |
+| `$occurrence` | `int` | Zero-indexed position of the block within the pattern |
+| `$classes` | `string\|string[]` | Classes to add |
+
+Classes the block already has are left alone, so this is safe to apply across a pattern whose markup varies (or to omit mention of classes that you don't care about).
+
+---
+
+### `remove_class()`
+
+```php
+->remove_class( 'theme/hero', 'core/paragraph', occurrence: 0, classes: 'is-style-lede' )
+```
+
+Receives the same parameters as `add_class()`. Classes the block doesn't have are ignored, and `className` is dropped from the attributes once nothing is left in it. Generated classes the block needs (`wp-block-heading` and friends) are untouched unless named explicitly.
+
+---
+
+### `replace_class()`
+
+```php
+->replace_class(
+    pattern_slug: 'theme/hero',
+    block_type:   'core/heading',
+    occurrence:   0,
+    old_classes:  'is-style-default',
+    new_classes:  'is-style-display'
+)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `$pattern_slug` | `string` | Slug of the pattern containing the target block |
+| `$block_type` | `string` | Block type name |
+| `$occurrence` | `int` | Zero-indexed position of the block within the pattern |
+| `$old_classes` | `string\|string[]` | Classes to remove |
+| `$new_classes` | `string\|string[]` | Classes to add |
+
+The new classes are added whether or not the old ones were present, so this reads as "make sure that when we're done, _this_ class is removed and _this other_ class is present".
+
+---
+
 ## Custom transformations
 
 ### `transform_callback()`

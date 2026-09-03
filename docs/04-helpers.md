@@ -278,6 +278,33 @@ $transformed = Pattern_Transformer\apply_pattern_transformations( $resolved, $tr
 
 ---
 
+### `add_block_class()`, `remove_block_class()`, `replace_block_class()`
+
+Change the classes on a single block, keeping its `className` attribute and its markup in step.
+
+```php
+$block = Pattern_Transformer\add_block_class( $block, 'is-style-display' );
+$block = Pattern_Transformer\remove_block_class( $block, [ 'is-style-lede', 'legacy' ] );
+$block = Pattern_Transformer\replace_block_class( $block, 'is-style-default', 'is-style-display' );
+```
+
+Classes may be given as a single name, a space-separated list, or an array of either. The class is added to or removed from `attrs['className']` and from the `class` attribute of the first tag in the block's own markup — for a container block that's the wrapper, not its inner blocks. Blocks that render their own markup get the attribute update only, which is all WordPress needs to output the class.
+
+These are the block-level counterparts to the `Template` class's `add_class()`, `remove_class()` and `replace_class()` methods. Use them when walking a block tree yourself — styling every heading in a body of imported content, for instance — rather than targeting a block by pattern and occurrence.
+
+As with the `Template` methods, avoid removing required generated classes from a block (such as `wp-block-heading`): the block's `save()` still emits them, so content without them fails editor validation.
+
+For a sequence of changes on one block, `apply_block_class_ops()` takes an ordered list and folds it into a single attribute write. (This is what the three functions above use internally.)
+
+```php
+$block = Pattern_Transformer\apply_block_class_ops( $block, [
+    [ 'action' => 'add',    'classes' => 'is-style-display legacy' ],
+    [ 'action' => 'remove', 'classes' => 'legacy' ],
+] );
+```
+
+---
+
 ### `rebuild_inner_content()`
 
 Rebuild the `innerContent` array for a block after its `innerBlocks` have been modified. WordPress block serialization requires `innerContent` to have `null` placeholders for each inner block interleaved with the wrapper HTML strings.
