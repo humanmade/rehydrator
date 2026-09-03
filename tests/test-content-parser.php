@@ -393,6 +393,47 @@ class ContentParserTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test convert_html_to_blocks sets hasFixedLayout so the block validates.
+	 */
+	public function test_convert_html_to_blocks_table_has_fixed_layout_attr() {
+		$html = '<table><tr><td>Cell</td></tr></table>';
+		$blocks = Content_Parser\convert_html_to_blocks( $html );
+
+		$this->assertSame( [ 'hasFixedLayout' => false ], $blocks[0]['attrs'] );
+	}
+
+	/**
+	 * Test convert_html_to_blocks strips legacy presentational table attributes.
+	 */
+	public function test_convert_html_to_blocks_table_strips_presentation_attributes() {
+		$html = '<table border="1" cellpadding="2" cellspacing="0" bgcolor="#fff">'
+			. '<tr><td valign="top">Cell</td></tr></table>';
+		$blocks = Content_Parser\convert_html_to_blocks( $html );
+
+		$this->assertStringNotContainsString( 'border=', $blocks[0]['innerHTML'] );
+		$this->assertStringNotContainsString( 'cellpadding=', $blocks[0]['innerHTML'] );
+		$this->assertStringNotContainsString( 'cellspacing=', $blocks[0]['innerHTML'] );
+		$this->assertStringNotContainsString( 'bgcolor=', $blocks[0]['innerHTML'] );
+		$this->assertStringNotContainsString( 'valign=', $blocks[0]['innerHTML'] );
+		$this->assertStringContainsString( '<td>Cell</td>', $blocks[0]['innerHTML'] );
+	}
+
+	/**
+	 * Test strip_table_presentation_attributes directly.
+	 */
+	public function test_strip_table_presentation_attributes() {
+		$html = '<table border="1" cellpadding="2" cellspacing="0" bgcolor="#ffffff">'
+			. '<tr><td valign="middle" align="left">Cell</td></tr></table>';
+
+		$stripped = Content_Parser\strip_table_presentation_attributes( $html );
+
+		$this->assertSame(
+			'<table><tr><td align="left">Cell</td></tr></table>',
+			$stripped
+		);
+	}
+
+	/**
 	 * Test convert_html_to_blocks with preformatted text.
 	 */
 	public function test_convert_html_to_blocks_pre() {
