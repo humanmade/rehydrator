@@ -374,11 +374,11 @@ function update_block_text_content( array $block, string $new_text ) : array {
 /**
  * Replace each inner block with the blocks a callback returns for it.
  *
- * The callback receives one child and returns zero or more blocks to stand in
- * its place. innerContent is updated in step: the child's null placeholder is
- * replaced by one null per returned block, and every literal HTML chunk,
- * including markup between children, is kept as-is. If the placeholders do not
- * line up with the children, innerContent is regenerated instead.
+ * The callback receives one child and returns zero or more blocks to replace
+ * it with. innerContent is updated in sync; a child's null placeholder is
+ * replaced by one null per returned block. Every literal HTML chunk (including
+ * markup between children) is kept as-is. innerContent gets fully regenerated
+ * if the placeholders don't line up with children.
  *
  * @param array    $block Block whose inner blocks should be processed.
  * @param callable $callback function( array $child ) : array of replacement blocks.

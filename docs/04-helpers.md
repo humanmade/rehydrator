@@ -307,7 +307,7 @@ $block = Pattern_Transformer\apply_block_class_ops( $block, [
 
 ### `map_inner_blocks()`
 
-Replace each inner block of a block with zero or more blocks returned by a callback, keeping `innerContent` in step. WordPress block serialization requires `innerContent` to hold one `null` placeholder per inner block, interleaved with literal HTML strings. This swaps each child's placeholder for one per returned block and leaves every literal chunk, including markup between children, untouched.
+Replace each inner block of a block with zero or more blocks returned by a callback, keeping `innerContent` in step. WordPress block serialization requires `innerContent` to hold one `null` placeholder per inner block, interleaved with literal HTML strings. This swaps each child's placeholder for one per returned block and leaves every literal chunk untouched (including markup between children).
 
 ```php
 // Drop every paragraph, keeping any separator markup between blocks.
