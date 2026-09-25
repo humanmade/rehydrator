@@ -528,6 +528,17 @@ class ContentParserTest extends WP_UnitTestCase {
 	}
 
 	/**
+	 * Test convert_html_to_blocks keeps the space from a whitespace-only span.
+	 */
+	public function test_convert_html_to_blocks_keeps_whitespace_only_span_as_space() {
+		$html = '<p><span class="a">Hello.</span><span class="a"> </span><span class="a">Hi</span><span></span></p>';
+		$blocks = Content_Parser\convert_html_to_blocks( $html );
+
+		$this->assertCount( 1, $blocks );
+		$this->assertStringContainsString( 'Hello.</span> <span class="a">Hi</span></p>', $blocks[0]['innerHTML'] );
+	}
+
+	/**
 	 * Test convert_html_to_blocks removes empty paragraphs.
 	 */
 	public function test_convert_html_to_blocks_removes_empty_paragraphs() {
