@@ -922,8 +922,11 @@ function preprocess_html( string $html, array $options ) : string {
 		);
 	}
 
-	// Remove empty span tags.
-	$html = preg_replace( '/<span[^>]*>\s*<\/span>/i', '', $html );
+	// Remove empty span tags. A whitespace-only span can be the only word
+	// separator (Word-pasted `NormalTextRun` runs), so it collapses to a space
+	// rather than being dropped.
+	$html = preg_replace( '/<span[^>]*>\s+<\/span>/i', ' ', $html );
+	$html = preg_replace( '/<span[^>]*><\/span>/i', '', $html );
 
 	// Normalize line breaks.
 	$html = str_replace( [ "\r\n", "\r" ], "\n", $html );
