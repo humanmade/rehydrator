@@ -48,6 +48,14 @@ class Template {
 	protected $error = null;
 
 	/**
+	 * Slugs already warned about as unresolved, shared across instances so a
+	 * bulk import reports each missing pattern once.
+	 *
+	 * @var array<string, true>
+	 */
+	protected static $warned_slugs = [];
+
+	/**
 	 * Pattern slugs to replace with synced patterns.
 	 *
 	 * Each entry is keyed by pattern slug and contains:
@@ -560,6 +568,7 @@ class Template {
 		$this->load_pattern();
 
 		if ( $this->error ) {
+			$this->warn_unresolved();
 			return $this->error;
 		}
 
@@ -583,6 +592,7 @@ class Template {
 		$this->load_pattern();
 
 		if ( $this->error ) {
+			$this->warn_unresolved();
 			return [];
 		}
 
@@ -590,6 +600,24 @@ class Template {
 		$this->apply_transformations();
 
 		return $this->blocks;
+	}
+
+	/**
+	 * Warn once per slug that the pattern did not resolve.
+	 *
+	 * A missing pattern is a programming error, and silently emitting nothing
+	 * is the worst outcome during a bulk import. Callers that check
+	 * has_error() themselves never reach this.
+	 *
+	 * @return void
+	 */
+	protected function warn_unresolved() {
+		if ( isset( self::$warned_slugs[ $this->pattern_slug ] ) ) {
+			return;
+		}
+
+		self::$warned_slugs[ $this->pattern_slug ] = true;
+		trigger_error( esc_html( $this->error->get_error_message() ), E_USER_WARNING );
 	}
 
 	/**

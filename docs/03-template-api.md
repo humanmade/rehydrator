@@ -400,4 +400,6 @@ $transformer
 
 ## Error handling
 
-If the initial pattern slug isn't found in the WordPress pattern registry, all transformation methods still return `$this` safely. The error is stored and returned by `get_content()` as a `WP_Error`. Check `has_error()` after the call if you need to handle failures gracefully.
+If the initial pattern slug isn't found in the WordPress pattern registry, all transformation methods still return `$this` safely. The error is stored and returned by `get_content()` as a `WP_Error`; `get_blocks()` returns `[]`.
+
+Both getters also raise an `E_USER_WARNING` the first time a given slug fails to resolve, so a bulk import reports each missing pattern once rather than emitting nothing. `has_error()` and `get_error()` never warn, so a caller that checks them and skips the getters can handle the failure its own way.

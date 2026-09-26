@@ -325,12 +325,71 @@ class TemplateTest extends WP_UnitTestCase {
 	 * Test get_blocks returns empty array on error.
 	 */
 	public function test_get_blocks_returns_empty_on_error() {
-		$template = new Template( 'nonexistent/pattern' );
+		$template = new Template( 'nonexistent/get-blocks' );
 
-		$blocks = $template->get_blocks();
+		$warnings = $this->capture_warnings( fn() => $template->get_blocks() );
+		$blocks   = $warnings['result'];
 
 		$this->assertIsArray( $blocks );
 		$this->assertEmpty( $blocks );
+	}
+
+	/**
+	 * Test an unresolved pattern warns once per slug, not once per call or instance.
+	 */
+	public function test_unresolved_pattern_warns_once_per_slug() {
+		$warnings = $this->capture_warnings( function () {
+			$first = new Template( 'nonexistent/warn-once' );
+			$first->get_blocks();
+			$first->get_blocks();
+
+			$second = new Template( 'nonexistent/warn-once' );
+			$second->get_content();
+		} );
+
+		$this->assertCount( 1, $warnings['messages'] );
+		$this->assertStringContainsString( 'nonexistent/warn-once', $warnings['messages'][0] );
+	}
+
+	/**
+	 * Test has_error() does not warn; a caller checking it is handling the failure.
+	 */
+	public function test_has_error_does_not_warn() {
+		$warnings = $this->capture_warnings( function () {
+			$template = new Template( 'nonexistent/has-error' );
+			$template->has_error();
+			$template->get_error();
+		} );
+
+		$this->assertCount( 0, $warnings['messages'] );
+	}
+
+	/**
+	 * Run a callback with E_USER_WARNING captured instead of raised.
+	 *
+	 * @param callable $callback Code to run.
+	 * @return array{result: mixed, messages: string[]}
+	 */
+	private function capture_warnings( callable $callback ) : array {
+		$messages = [];
+		set_error_handler(
+			function ( int $errno, string $errstr ) use ( &$messages ) : bool {
+				$messages[] = $errstr;
+				return true;
+			},
+			E_USER_WARNING
+		);
+
+		try {
+			$result = $callback();
+		} finally {
+			restore_error_handler();
+		}
+
+		return [
+			'result'   => $result,
+			'messages' => $messages,
+		];
 	}
 
 	/**
@@ -536,9 +595,11 @@ class TemplateTest extends WP_UnitTestCase {
 	 * Test get_content returns WP_Error for missing pattern.
 	 */
 	public function test_get_content_returns_wp_error_for_missing_pattern() {
-		$template = new Template( 'nonexistent/pattern' );
+		$template = new Template( 'nonexistent/get-content' );
 
-		$content = $template->get_content();
+		$warnings = $this->capture_warnings( fn() => $template->get_content() );
+		$content  = $warnings['result'];
+		$this->assertCount( 1, $warnings['messages'] );
 
 		$this->assertInstanceOf( \WP_Error::class, $content );
 		$this->assertEquals( 'pattern_not_found', $content->get_error_code() );
